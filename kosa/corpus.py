@@ -55,3 +55,15 @@ class Verses:
                         if quote:
                             out.append((sid, field, quote, self.find(quote)))
         return out
+
+    def check_ontology(self, onto):
+        """核對本體（門、定義）註記中的頌文。回傳 [(名, 欄位, 引文, 命中)]。"""
+        out = []
+        items = [(d.name, d.notes) for d in onto.dims.values()] + list(onto.def_notes.items())
+        for name, notes in items:
+            if "頌" in notes:
+                for quote in re.split(r"[；;]", notes["頌"]):
+                    quote = quote.strip()
+                    if quote:
+                        out.append((name, "頌", quote, self.find(quote)))
+        return out

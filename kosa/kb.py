@@ -46,6 +46,7 @@ class Dim:
     values: list
     applies: str | None
     notes: dict
+    value_applies: dict = field(default_factory=dict)   # 值 → 此值的適用類（如「身表〔色處〕」）
 
 
 @dataclass
@@ -72,7 +73,15 @@ class Ontology:
             m = re.match(r"門\s+(\S+?)(?:〔(.+?)〕)?：(.+)$", head)
             if not m:
                 raise KosaSyntaxError(f"門.kosa:{no} 無法解析：{head}")
-            o.dims[m.group(1)] = Dim(m.group(1), split_names(m.group(3)), m.group(2), kv)
+            vals, vapp = [], {}
+            for raw in split_names(m.group(3)):
+                mv = re.match(r"(.+?)〔(.+?)〕$", raw)
+                if mv:
+                    vals.append(mv.group(1))
+                    vapp[mv.group(1)] = mv.group(2)
+                else:
+                    vals.append(raw)
+            o.dims[m.group(1)] = Dim(m.group(1), vals, m.group(2), kv, vapp)
         for head, kv, no in read_blocks(root / "定義.kosa"):
             if head.startswith("別名"):
                 a, b = head[2:].strip().split("＝")
@@ -227,29 +236,134 @@ class Module:
             if sid in m.statements:
                 raise KosaSyntaxError(f"{path.name}:{no} 編號重複：{sid}")
             m.statements[sid] = Statement(sid, text, f, form, kv, no)
+        m._check_dims()
         return m
 
     def _product(self, s: Sort):
+        """積類別的元素。因子可以是一門（取其全部值），也可以是一個定義——
+        定義須展開為若干門值之「或」（如「惑」＝貪或瞋或……或五見），每個門值連同它的適用條件
+        所蘊含的上位門值一起寫入（如「身見」→ 見種＝身見、心所自性＝慧、法類＝心所）。"""
         onto = self.onto
         out = [dict()]
-        for dname in s.dims:
-            d = onto.dims[dname]
-            new = []
-            for partial in out:
-                appl = True
-                if d.applies:
-                    appl = self._applies_partial(d.applies, partial)
-                vals = d.values if appl else ["—"]
-                for v in vals:
-                    q = dict(partial)
-                    q[dname] = v
-                    new.append(q)
-            out = new
+        dims = []
+        for factor in s.dims:
+            if factor in onto.dims:
+                d = onto.dims[factor]
+                dims.append(factor)
+                new = []
+                for partial in out:
+                    appl = True
+                    if d.applies:
+                        appl = self._applies_partial(d.applies, partial)
+                    vals = d.values if appl else ["—"]
+                    for v in vals:
+                        if v in d.value_applies and not self._applies_partial(d.value_applies[v], partial):
+                            continue
+                        q = dict(partial)
+                        q[factor] = v
+                        new.append(q)
+                out = new
+            elif factor in onto.defs:
+                atoms = self._expand_values(factor)
+                new = []
+                for partial in out:
+                    for v in atoms:
+                        q = dict(partial)
+                        q.update(self._value_closure(v))
+                        new.append(q)
+                out = new
+                for v in atoms:
+                    for dn in self._value_closure(v):
+                        if dn not in dims:
+                            dims.append(dn)
+            else:
+                raise KosaSyntaxError(f"積類別「{s.name}」的因子「{factor}」既不是門，也不是定義")
+        # 因子展開出的門，未取值者記為「—」
+        for q in out:
+            for dn in dims:
+                q.setdefault(dn, "—")
+        s.dims = dims
         return out
+
+    def _expand_values(self, name):
+        """把定義展開為門值的列表；定義須是門值或定義之「或」。"""
+        info = self.lex.kind.get(name)
+        if info and info[0] == "值":
+            return [name]
+        if info and info[0] == "定義":
+            ce = parse_class(self.onto.defs[name], self.lex)
+            alts = ce[1] if ce[0] == "或" else [ce]
+            out = []
+            for a in alts:
+                if a[0] != "名":
+                    raise KosaSyntaxError(f"定義「{name}」不是單純的列舉，不能作積的因子")
+                out += self._expand_values(a[1])
+            return out
+        raise KosaSyntaxError(f"「{name}」不能展開為門值")
+
+    def _value_closure(self, v):
+        """門值 v，及其適用條件所要求的上位門值（適用條件須是單一門值）。"""
+        out = {}
+        while v is not None:
+            dn = self.onto.value_dim(v)
+            out[dn] = v
+            ap = self.onto.dims[dn].value_applies.get(v) or self.onto.dims[dn].applies
+            if not ap:
+                break
+            ce = parse_class(ap, self.lex)
+            if ce[0] == "名" and self.lex.kind.get(ce[1], ("",))[0] == "值":
+                v = ce[1]
+            else:
+                break
+        return out
+
+    def formula_dims(self, f):
+        """命題中出現的門（含定義、謂詞以外的類所涉及的門）。"""
+        k = f[0]
+        if k in ("凡", "有"):
+            return self.formula_dims(f[2])
+        if k in ("且", "或"):
+            out = set()
+            for g in f[1]:
+                out |= self.formula_dims(g)
+            return out
+        if k == "非":
+            return self.formula_dims(f[1])
+        if k in ("⇒", "⇔"):
+            return self.formula_dims(f[1]) | self.formula_dims(f[2])
+        if k == "屬":
+            return self.class_dims(f[1])
+        if k == "同門":
+            return {f[1]}
+        return set()
+
+    def _check_dims(self):
+        """防呆：命題、定義、適用條件所涉及的門，必須是本模組用到的門。
+        否則那些門值在世界中永遠不成立，命題會被靜默地誤讀。"""
+        used = set()
+        for s in self.sorts.values():
+            used |= set(s.dims)
+        for s in self.sorts.values():
+            if s.kind != "開放":
+                continue
+            for dn in s.dims:
+                d = self.onto.dims[dn]
+                for ap in [d.applies] + list(d.value_applies.values()):
+                    if not ap:
+                        continue
+                    miss = self.class_dims(parse_class(ap, self.lex)) - set(s.dims)
+                    if miss:
+                        raise KosaSyntaxError(
+                            f"{self.path.name}：類別「{s.name}」用了門「{dn}」，它的適用條件涉及門「{'、'.join(sorted(miss))}」，請一併列入「用門」")
+        for sid, st in self.statements.items():
+            miss = self.formula_dims(st.formula) - used
+            if miss:
+                raise KosaSyntaxError(
+                    f"{self.path.name}【{sid}】用到門「{'、'.join(sorted(miss))}」，但本模組沒有用這些門（見「用門」）")
 
     def _applies_partial(self, cls_text, partial):
         ce = parse_class(cls_text, self.lex)
-        # 適用條件涉及積類別之外的門時（如「惑種〔惑〕」而積中無「心所類」），視為適用
+        # 適用條件涉及積類別之外的門時（如「界〔有漏〕」而積中無「有漏無漏」），視為適用
         if not self.class_dims(ce) <= set(partial):
             return True
         from .evaluate import class_holds_attrs

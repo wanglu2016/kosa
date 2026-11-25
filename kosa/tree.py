@@ -1,6 +1,8 @@
 """前提體系：約定、假定、定理、目標。
 
-每個定理（及目標）列出它所依的條目（「依」）。引擎檢驗：
+每個定理（及目標）列出它所依的條目（「依」）。另有兩層：「異讀」是不屬於體系的讀法，
+「推論」是由異讀與體系條目推出的結果；異讀不進入相容性、獨立性與極小前提集的檢驗。
+引擎檢驗：
   · 推得出：所依 ⊨ 定理；
   · 缺一不可：去掉所依中任何一條，就推不出；
   · 假定之間相容，且互不可推（獨立）；
@@ -10,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-LAYERS = ("約定", "假定", "定理", "目標")
+LAYERS = ("約定", "假定", "定理", "目標", "異讀", "推論")
 
 
 @dataclass
@@ -57,15 +59,25 @@ class TreeReport:
     closure: dict = field(default_factory=dict)        # 節點 → 其最終依賴的約定、假定
     direct: bool = False                               # 全部假定、約定 ⊨ 目標
     goal_minimal: list = field(default_factory=list)   # 目標的極小前提集（在全部假定、約定中）
+    goal: str = "目標"
 
 
-def verify(engine, goal="目標"):
+def goal_of(N):
+    gs = [s for s, n in N.items() if n.layer == "目標"]
+    if len(gs) != 1:
+        raise ValueError(f"前提體系應恰有一個目標，見到 {gs}")
+    return gs[0]
+
+
+def verify(engine, goal=None):
     m = engine.m
     N = nodes(m)
+    goal = goal or goal_of(N)
     R = TreeReport(N)
+    R.goal = goal
     base = [s for s, n in N.items() if n.layer in ("約定", "假定")]
     for sid, n in N.items():
-        if n.layer not in ("定理", "目標"):
+        if n.layer not in ("定理", "目標", "推論"):
             continue
         r = engine.entails(n.deps, sid)
         unnecessary = []
@@ -82,7 +94,7 @@ def verify(engine, goal="目標"):
         if s in R.closure:
             return R.closure[s]
         n = N[s]
-        if n.layer in ("約定", "假定"):
+        if n.layer in ("約定", "假定", "異讀"):
             res = {s}
         else:
             res = set()

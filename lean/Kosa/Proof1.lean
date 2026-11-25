@@ -14,44 +14,51 @@ import Kosa.Module1
 
 namespace Kosa.M1
 
+/-- 表色必是色：身表唯在色處、語表唯在聲處（值的適用條件），有色自性者必是色。 -/
+theorem «表色是色» (W : «世界») (O : «本體公理» W) (x : W.E)
+    (h : «表色» W x) : W.«法類» x = .«色» := by
+  have hZi : W.«色自性» x ≠ .«—» := by
+    rcases h with h | h
+    · rw [O.«適用_身表» x h]; decide
+    · rw [O.«適用_語表» x h]; decide
+  by_cases hx : W.«法類» x = .«色»
+  · exact hx
+  · exact absurd ((O.«適用_色自性» x).2 hx) hZi
+
 /-- 引理：欲界的有覆無記心唯內門轉。
     有覆無記心必有惑相應（補一），惑與心同性、同地（補二、補三）；
     欲界有覆無記惑唯身見、邊見及彼俱癡（前提9）；
     身見、邊見是見所斷（前提2），見所斷惑內門轉（前提1）；
     相應法同門轉（前提3乙），所以心也內門轉。 -/
-theorem «欲界有覆無記心唯內門轉» (W : «世界») (O : «本體公理» W)
+theorem «欲界有覆無記心唯內門轉» (W : «世界»)
     (p1 : «前提1» W) (p2 : «前提2» W) (p3b : «前提3乙» W) (p9 : «前提9» W)
     (b1 : «補一» W) (b2 : «補二» W) (b3 : «補三» W)
     (c : W.E) (hcXin : W.«法類» c = .«心») (hcXing : W.«性» c = .«有覆無記»)
-    (hk : W.«繫» c = .«欲界繫») : W.«門轉» c = .«內門轉» := by
+    (hk : W.«繫不繫» c = .«欲界繫») : W.«門轉» c = .«內門轉» := by
   -- 染心必有惑相應（補一）
   obtain ⟨y, hyHuo, hcy⟩ := b1 c ⟨hcXin, Or.inr hcXing⟩
   -- 惑與心同性、同地（補二、補三）
   have hyXing : W.«性» y = .«有覆無記» := by rw [← b2 c y hcy]; exact hcXing
-  have hyXi : W.«繫» y = .«欲界繫» := by rw [← b3 c y hcy]; exact hk
+  have hyXi : W.«繫不繫» y = .«欲界繫» := by rw [← b3 c y hcy]; exact hk
   -- 心的門轉與惑相同（前提3乙）
   rw [p3b c y hcy]
   -- 欲界有覆無記惑：身見、邊見，或與之相應的癡（前提9）
   rcases p9 y ⟨hyHuo, hyXi, hyXing⟩ with h | h | ⟨_, z, hyz, hz⟩
   · exact p1 y ⟨p2 y (Or.inl h), hyHuo⟩
   · exact p1 y ⟨p2 y (Or.inr (Or.inl h)), hyHuo⟩
-  · -- 與癡相應的身見或邊見 z 也是惑（本體：只有惑才有惑種）
-    have hzHuo : W.«心所類» z = .«惑» := by
-      by_cases hne : W.«心所類» z = .«惑»
-      · exact hne
-      · have hdash := (O.«適用_惑種» z).2 hne
-        rcases hz with h' | h' <;> (rw [hdash] at h'; cases h')
-    have hzJian : W.«斷» z = .«見所斷» := by
+  · -- 與癡相應的身見或邊見 z：五見，故是惑（定義）、見所斷（前提2）
+    have hzWu : «五見» W z := by
       rcases hz with h' | h'
-      · exact p2 z (Or.inl h')
-      · exact p2 z (Or.inr (Or.inl h'))
+      · exact Or.inl h'
+      · exact Or.inr (Or.inl h')
+    have hzHuo : «惑» W z := Or.inr (Or.inr (Or.inr (Or.inr (Or.inr hzWu))))
     rw [p3b y z hyz]
-    exact p1 z ⟨hzJian, hzHuo⟩
+    exact p1 z ⟨p2 z hzWu, hzHuo⟩
 
 /-- 有覆無記色是表色：它是業（前提10乙），而無表色是有記（前提15）。 -/
 theorem «有覆無記色是表色» (W : «世界») (p10b : «前提10乙» W) (p15 : «前提15» W)
     (r : W.E) (hrXing : W.«性» r = .«有覆無記») (hrSe : W.«法類» r = .«色») :
-    W.«色類» r = .«表色» := by
+    «表色» W r := by
   have hYe : «業» W r := p10b r ⟨hrSe, by rw [hrXing]; decide⟩
   rcases hYe with h | h
   · exact h
@@ -79,10 +86,10 @@ theorem «有覆無記色唯初靜慮繫» (W : «世界») (O : «本體公理�
   have hcXin : W.«法類» c = .«心» := (O.«類型_剎那等起» r c hrc).2.1
   -- 能發表業的心外門轉（前提8），外門轉心有伺（前提12）
   have hcWai : W.«門轉» c = .«外門轉» := p8 r c ⟨hBiao, hrc⟩
-  have hcSi : W.«伺» c = .«有伺» := p12 c ⟨hcWai, hcXin⟩
+  have hcSi : W.«有伺無伺» c = .«有伺» := p12 c ⟨hcWai, hcXin⟩
   -- 等起心有漏（補五），有漏即非不繫（補六）
-  have hcLou : W.«漏» c = .«有漏» := b5 r c hrc
-  have hNotBuxi : W.«繫» c ≠ .«不繫» := by
+  have hcLou : W.«有漏無漏» c = .«有漏» := b5 r c hrc
+  have hNotBuxi : W.«繫不繫» c ≠ .«不繫» := by
     intro h
     have hWulou := (b6 c).2 h
     rw [hcLou] at hWulou
@@ -94,14 +101,14 @@ theorem «有覆無記色唯初靜慮繫» (W : «世界») (O : «本體公理�
     rw [hcSi] at hWusi
     cases hWusi
   -- 欲界有覆無記心唯內門轉（引理），而 c 外門轉：c 不在欲界
-  have hNotYu : W.«繫» c ≠ .«欲界繫» := by
+  have hNotYu : W.«繫不繫» c ≠ .«欲界繫» := by
     intro hk
-    have hNei := «欲界有覆無記心唯內門轉» W O p1 p2 p3b p9 b1 b2 b3 c hcXin hcXing hk
+    have hNei := «欲界有覆無記心唯內門轉» W p1 p2 p3b p9 b1 b2 b3 c hcXin hcXing hk
     rw [hcWai] at hNei
     cases hNei
   -- 表業與等起心同地（補四）；剩下只有初靜慮
   rw [b4 r c hrc]
-  cases hk : W.«繫» c
+  cases hk : W.«繫不繫» c
   all_goals first
     | rfl
     | exact absurd hk hNotYu
@@ -117,18 +124,13 @@ theorem «欲無有覆表» (W : «世界») (O : «本體公理» W)
     (b1 : «補一» W) (b2 : «補二» W) (b3 : «補三» W) (b4 : «補四» W) :
     «頌三» W := by
   rintro ⟨r, hrYu, hrXing, hrBiao⟩
-  have hrSe : W.«法類» r = .«色» := by
-    by_cases h : W.«法類» r = .«色»
-    · exact h
-    · have hdash := (O.«適用_色類» r).2 h
-      rw [hdash] at hrBiao
-      cases hrBiao
+  have hrSe : W.«法類» r = .«色» := «表色是色» W O r hrBiao
   obtain ⟨c, hrc, hSame⟩ := p10a r ⟨hrSe, by rw [hrXing]; decide⟩
   have hcXing : W.«性» c = .«有覆無記» := by rw [← hSame]; exact hrXing
   have hcXin : W.«法類» c = .«心» := (O.«類型_剎那等起» r c hrc).2.1
   have hcWai : W.«門轉» c = .«外門轉» := p8 r c ⟨hrBiao, hrc⟩
-  have hk : W.«繫» c = .«欲界繫» := by rw [← b4 r c hrc]; exact hrYu
-  have hNei := «欲界有覆無記心唯內門轉» W O p1 p2 p3b p9 b1 b2 b3 c hcXin hcXing hk
+  have hk : W.«繫不繫» c = .«欲界繫» := by rw [← b4 r c hrc]; exact hrYu
+  have hNei := «欲界有覆無記心唯內門轉» W p1 p2 p3b p9 b1 b2 b3 c hcXin hcXing hk
   rw [hcWai] at hNei
   cases hNei
 
@@ -162,7 +164,7 @@ theorem «轉讀法之衝突» (W : «世界») (O : «本體公理» W)
     | «無覆無記» => exact absurd hcJian (p6 c ⟨Or.inr h, hcXin⟩)
   -- 染心有惑相應（補一），惑與心同所斷（前提3甲），見所斷惑內門轉（前提1）
   obtain ⟨y, hyHuo, hcy⟩ := b1 c ⟨hcXin, hcRan⟩
-  have hyJian : W.«斷» y = .«見所斷» := by rw [← p3a c y hcy]; exact hcJian
+  have hyJian : W.«斷非斷» y = .«見所斷» := by rw [← p3a c y hcy]; exact hcJian
   have hyNei := p1 y ⟨hyJian, hyHuo⟩
   -- 作表業之轉的心外門轉（異讀8），相應法同門轉（前提3乙）
   have hcWai := a8 r c ⟨hrBiao, hrc⟩

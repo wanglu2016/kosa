@@ -142,6 +142,9 @@ class Compiler:
                         R.append(f"v(E,{q(dn)},\"—\") :- d{j}(E), not {app}.")
                     else:
                         R.append(f"1 {{ {vals} }} 1 :- d{j}(E).")
+                    for val, vap in d.value_applies.items():
+                        app = self.comp_class(parse_class(vap, self.lex), "e", {"e": name}).replace("Ve", "E")
+                        R.append(f":- d{j}(E), v(E,{q(dn)},{q(val)}), not {app}.")
         R.append('is(E,V) :- v(E,D,V), V != "—".')
         for dn, text in onto.defs.items():
             ce = parse_class(text, self.lex)

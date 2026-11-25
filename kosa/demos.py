@@ -175,3 +175,39 @@ def module_four():
     R["seconds"] = time.time() - t0
     R["calls"] = e.calls
     return R
+
+
+def tree_module(name, extra=None):
+    """以前提體系組織的模組（五、六）：逐條檢驗，並計算目標的極小前提集。"""
+    t0 = time.time()
+    from .tree import verify
+    onto, m = load(name)
+    e = Engine(m)
+    R = {"module": m, "engine": e}
+    T = verify(e)
+    R["tree"] = T
+    R["verse_checks"] = verses().check_module(m)
+    base = [s for s, n in T.nodes.items() if n.layer in ("約定", "假定")]
+    R["base"] = base
+    # 每條假定、約定：去掉它，目標還成立嗎？（不成立者，附反例）
+    R["drop"] = {}
+    for a in base:
+        r = e.entails([b for b in base if b != a], T.goal)
+        R["drop"][a] = r
+    if extra:
+        extra(R, e, m, T)
+    R["seconds"] = time.time() - t0
+    R["calls"] = e.calls
+    return R
+
+
+def module_five():
+    def extra(R, e, m, T):
+        # 異讀：若「集」讀成「能生後心」
+        R["misread"] = e.entails(["異讀甲", "目標甲", "甲假五", "約甲二"], "推論甲", world=False).ok
+        R["misread_consistent_empty"] = e.consistent(["異讀甲"] + R["base"]).ok
+    return tree_module("五_阿羅漢最後心", extra)
+
+
+def module_six():
+    return tree_module("六_阿那含成就初靜慮")

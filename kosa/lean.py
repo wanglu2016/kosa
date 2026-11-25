@@ -36,6 +36,8 @@ class LeanExport:
                 return f"W.{g(info[1])} {x} = .{g(n)}"
             if info[0] == "定義":
                 return f"{g(n)} W {x}"
+            if info[0] == "謂詞":
+                return f"W.{g(n)} {x}"
             raise ValueError(n)
         if k == "且":
             return "(" + " ∧ ".join(self.cls(c, x) for c in ce[1]) + ")"
@@ -91,20 +93,25 @@ class LeanExport:
         L.append("  E : Type")
         for d in self.dims:
             L.append(f"  {g(d)} : E → {g(d + '值')}")
+        for pn, pr in self.m.preds.items():
+            if pr.sort == self.m.default_sort:
+                L.append(f"  {g(pn)} : E → Prop")
         for r in self.m.rels_used:
             L.append(f"  {g(r)} : E → E → Prop")
         L.append("")
+        exported = set()
         for n, text in self.onto.defs.items():
             ce = parse_class(text, self.lex)
             try:
                 body = self.cls(ce, "x")
             except KeyError:
                 continue
-            # 只導出本模組用得到的門所構成的定義
+            # 只導出本模組用得到的門所構成的定義（所引用的定義也須已導出）
             if any(f"W.{g(d)}" in body for d in self.onto.dims if d not in self.dims):
                 continue
-            if any(f"W.{g(dd)}" not in body for dd in []):
-                pass
+            if any(f"{g(d)} W" in body for d in self.onto.defs if d not in exported):
+                continue
+            exported.add(n)
             L.append(f"/-- 定義：{n}＝{text} -/")
             L.append(f"def {g(n)} (W : {g('世界')}) (x : W.E) : Prop := {body}")
             L.append("")
@@ -115,6 +122,9 @@ class LeanExport:
             if dim.applies:
                 cond = self.cls(parse_class(dim.applies, self.lex), "x")
                 ax.append((f"適用_{d}", f"∀ x : W.E, W.{g(d)} x = .{g('—')} ↔ ¬({cond})"))
+            for val, vap in dim.value_applies.items():
+                cond = self.cls(parse_class(vap, self.lex), "x")
+                ax.append((f"適用_{val}", f"∀ x : W.E, W.{g(d)} x = .{g(val)} → {cond}"))
         for r in self.m.rels_used:
             rel = self.onto.rels[r]
             a = self.cls(parse_class(rel.sig[0], self.lex), "x")

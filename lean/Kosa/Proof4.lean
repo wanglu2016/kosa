@@ -24,7 +24,7 @@ import Kosa.Module4
 | `obtain ⟨c, h⟩ := …` | 「由……，有一個 c，使得 h」        |
 | `have h : P := …` | 「得 P，記作 h」                    |
 | `exact …`   | 「這正是要證的」                           |
-| `cases h : W.«繫» c` | 「就 c 所繫之地，逐一分情況」     |
+| `cases h : W.«繫不繫» c` | 「就 c 所繫之地，逐一分情況」     |
 | `rw [h]`    | 「用 h 代入」                              |
 | `absurd`    | 「兩者相違，此情況不可能」                  |
 | `decide`    | 「兩個不同的值不相等，這可以直接判定」        |
@@ -35,39 +35,45 @@ import Kosa.Module4
 
 namespace Kosa.M4
 
-/-! ## 兩條小引理：來自本體的適用條件 -/
+/-! ## 小引理：來自本體的適用條件 -/
 
-/-- 有惑種（不是「—」）的法，必是惑。 -/
-theorem «有惑種者是惑» (W : «世界») (O : «本體公理» W) (x : W.E)
-    (h : W.«惑種» x ≠ .«—») : W.«心所類» x = .«惑» := by
-  by_cases hx : W.«心所類» x = .«惑»
-  · exact hx
-  · exact absurd ((O.«適用_惑種» x).2 hx) h
-
-/-- 有色類（不是「—」）的法，必是色。 -/
-theorem «有色類者是色» (W : «世界») (O : «本體公理» W) (x : W.E)
-    (h : W.«色類» x ≠ .«—») : W.«法類» x = .«色» := by
+/-- 表色必是色：身表唯在色處、語表唯在聲處（值的適用條件），有色自性者必是色。 -/
+theorem «表色是色» (W : «世界») (O : «本體公理» W) (x : W.E)
+    (h : «表色» W x) : W.«法類» x = .«色» := by
+  have hZi : W.«色自性» x ≠ .«—» := by
+    rcases h with h | h
+    · rw [O.«適用_身表» x h]; decide
+    · rw [O.«適用_語表» x h]; decide
   by_cases hx : W.«法類» x = .«色»
   · exact hx
-  · exact absurd ((O.«適用_色類» x).2 hx) h
+  · exact absurd ((O.«適用_色自性» x).2 hx) hZi
+
+/-- 癡不是見：見種只屬於慧，而癡的自性不是慧。 -/
+theorem «癡無見種» (W : «世界») (O : «本體公理» W) (y : W.E)
+    (h : W.«心所自性» y = .«癡») : W.«見種» y = .«—» :=
+  (O.«適用_見種» y).2 (by rw [h]; decide)
+
+/-- 五見是惑（定義）。 -/
+theorem «五見是惑» (W : «世界») (x : W.E) (h : «五見» W x) : «惑» W x :=
+  Or.inr (Or.inr (Or.inr (Or.inr (Or.inr h))))
 
 /-- 有伺、有漏的心，唯在欲界或初靜慮：
     有漏則非不繫（約一）；有伺則非二定以上（假十）。 -/
 theorem «有伺有漏心唯欲界或初靜慮» (W : «世界») (k1 : «約一» W) (a10 : «假十» W)
-    (c : W.E) (hXin : W.«法類» c = .«心») (hSi : W.«伺» c = .«有伺»)
-    (hLou : W.«漏» c = .«有漏») :
-    W.«繫» c = .«欲界繫» ∨ W.«繫» c = .«初靜慮繫» := by
+    (c : W.E) (hXin : W.«法類» c = .«心») (hSi : W.«有伺無伺» c = .«有伺»)
+    (hLou : W.«有漏無漏» c = .«有漏») :
+    W.«繫不繫» c = .«欲界繫» ∨ W.«繫不繫» c = .«初靜慮繫» := by
   have hNotUpper : ¬ «二定以上» W c := by
     intro h2
     have h := a10 c ⟨h2, hXin⟩      -- 若在二定以上，則無伺
     rw [hSi] at h                    -- 但它有伺
     cases h                          -- 相違
-  have hNotBuxi : W.«繫» c ≠ .«不繫» := by
+  have hNotBuxi : W.«繫不繫» c ≠ .«不繫» := by
     intro h
     have h' := (k1 c).2 h            -- 若不繫，則無漏
     rw [hLou] at h'                  -- 但它有漏
     cases h'                         -- 相違
-  cases hk : W.«繫» c                -- 就 c 所繫之地分情況
+  cases hk : W.«繫不繫» c                -- 就 c 所繫之地分情況
   all_goals first
     | exact Or.inl rfl               -- 欲界：成立
     | exact Or.inr rfl               -- 初靜慮：成立
@@ -114,12 +120,10 @@ theorem «定三成立» (W : «世界») (d2 : «定二» W) (a5 : «假五» W
     rcases hJi with h' | h' <;> cases h'                   -- 相違
 
 /-- 【定四】五見唯見所斷。依：假十六、假十七。 -/
-theorem «定四成立» (W : «世界») (O : «本體公理» W)
+theorem «定四成立» (W : «世界»)
     (a16 : «假十六» W) (a17 : «假十七» W) : «定四» W := by
   intro x h5
-  have hHuo : W.«心所類» x = .«惑» := «有惑種者是惑» W O x (by
-    intro hd; unfold «五見» at h5; rw [hd] at h5
-    rcases h5 with h | h | h | h | h <;> cases h)
+  have hHuo := «五見是惑» W x h5               -- 五見是惑（定義）
   rcases a16 x hHuo with hJian | hXiu        -- 隨眠皆所斷：見所斷或修所斷
   · exact hJian
   · exact absurd (Or.inl h5) (a17 x ⟨hXiu, hHuo⟩)   -- 修所斷離見：相違
@@ -133,21 +137,19 @@ theorem «定五成立» (W : «世界») (O : «本體公理» W)
   obtain ⟨y, hyChi, hcy⟩ := a12 c ⟨hXin, Or.inr hXing⟩
   -- 此癡與心同性、同地（假十三、十四）
   have hyXing : W.«性» y = .«有覆無記» := by rw [← a13 c y hcy]; exact hXing
-  have hyYu : W.«繫» y = .«欲界繫» := by rw [← a14 c y hcy]; exact hYu
-  have hyHuo : W.«心所類» y = .«惑» := «有惑種者是惑» W O y (by rw [hyChi]; decide)
+  have hyYu : W.«繫不繫» y = .«欲界繫» := by rw [← a14 c y hcy]; exact hYu
+  have hyHuo : «惑» W y := by unfold «惑»; simp [hyChi]   -- 癡是惑（定義）
   -- 欲界有覆無記隨眠，唯身見、邊見及彼俱癡（假十五）
   rcases a15 y ⟨hyHuo, hyYu, hyXing⟩ with h | h | ⟨_, z, hyz, hz⟩
-  · rw [hyChi] at h; cases h          -- 它是癡，不是身見
-  · rw [hyChi] at h; cases h          -- 它是癡，不是邊見
+  · rw [«癡無見種» W O y hyChi] at h; cases h   -- 它是癡，不是身見
+  · rw [«癡無見種» W O y hyChi] at h; cases h   -- 它是癡，不是邊見
   · -- 是與身見或邊見 z 相俱的癡
     have hzWu : «五見» W z := by
       rcases hz with h' | h'
       · exact Or.inl h'
       · exact Or.inr (Or.inl h')
     have hzJian := d4 z hzWu                         -- z 見所斷（定四）
-    have hzHuo : W.«心所類» z = .«惑» :=
-      «有惑種者是惑» W O z (by rcases hz with h' | h' <;> (rw [h']; decide))
-    have hyJian := a18 y z ⟨hyz, hzHuo, hzJian⟩      -- 故癡見所斷（假十八）
+    have hyJian := a18 y z ⟨hyz, «五見是惑» W z hzWu, hzJian⟩   -- 故癡見所斷（假十八）
     exact a18 c y ⟨hcy, hyHuo, hyJian⟩               -- 故心見所斷（假十八）
 
 /-- 【定六】欲界無有覆無記表——頌「欲無有覆表，以無等起故」。
@@ -156,12 +158,12 @@ theorem «定六成立» (W : «世界») (O : «本體公理» W)
     (d1 : «定一» W) (a6 : «假六» W) (a8 : «假八» W) (d5 : «定五» W) (a19 : «假十九» W) :
     «定六» W := by
   rintro ⟨r, hrYu, hrXing, hrBiao⟩     -- 設有欲界有覆無記表 r，往下推出矛盾
-  have hrSe := «有色類者是色» W O r (by rw [hrBiao]; decide)
+  have hrSe := «表色是色» W O r hrBiao
   have hrDeng := d1 r ⟨hrSe, by rw [hrXing]; decide⟩            -- r 由等起成（定一）
   obtain ⟨c, hrc, hSame⟩ := a6 r ⟨hrSe, hrDeng⟩                 -- 有同性的剎那等起心 c（假六）
   have hcXin := (O.«類型_剎那等起» r c hrc).2.1
   have hcXing : W.«性» c = .«有覆無記» := by rw [← hSame]; exact hrXing
-  have hcYu : W.«繫» c = .«欲界繫» := by rw [← a8 r c hrc]; exact hrYu   -- c 同在欲界（假八）
+  have hcYu : W.«繫不繫» c = .«欲界繫» := by rw [← a8 r c hrc]; exact hrYu   -- c 同在欲界（假八）
   exact a19 r c hrc (d5 c ⟨hcYu, hcXing, hcXin⟩)   -- c 見所斷（定五），卻作剎那等起（違假十九）
 
 /-- 【定七】表唯在欲界、初靜慮——頌「表唯有伺二」。
@@ -181,7 +183,7 @@ theorem «定七乙成立» (W : «世界») (O : «本體公理» W)
     (d1 : «定一» W) (a6 : «假六» W) (a9 : «假九» W) (a10 : «假十» W) (a8 : «假八» W)
     (a11 : «假十一» W) (k1 : «約一» W) : «定七乙» W := by
   intro r ⟨hrXing, hrBiao⟩
-  have hrSe := «有色類者是色» W O r (by rw [hrBiao]; decide)
+  have hrSe := «表色是色» W O r hrBiao
   have hrDeng := d1 r ⟨hrSe, by rw [hrXing]; decide⟩
   obtain ⟨c, hrc, _⟩ := a6 r ⟨hrSe, hrDeng⟩         -- 剎那等起心由假六給出，不必假七
   have hcXin := (O.«類型_剎那等起» r c hrc).2.1
@@ -213,7 +215,7 @@ theorem «目標由諸假定» (W : «世界») (O : «本體公理» W) (k1 : �
   let d1 := «定一成立» W O a1 a2 a3
   let d2 := «定二成立» W d1 a4
   let d3 := «定三成立» W d2 a5
-  let d4 := «定四成立» W O a16 a17
+  let d4 := «定四成立» W a16 a17
   let d5 := «定五成立» W O a12 a13 a14 a15 d4 a18
   let d6 := «定六成立» W O d1 a6 a8 d5 a19
   let d7b := «定七乙成立» W O d1 a6 a9 a10 a8 a11 k1
