@@ -202,11 +202,7 @@ def tree_module(name, extra=None):
 
 
 def module_five():
-    def extra(R, e, m, T):
-        # 異讀：若「集」讀成「能生後心」
-        R["misread"] = e.entails(["異讀甲", "目標甲", "甲假五", "約甲二"], "推論甲", world=False).ok
-        R["misread_consistent_empty"] = e.consistent(["異讀甲"] + R["base"]).ok
-    return tree_module("五_阿羅漢最後心", extra)
+    return tree_module("五_阿羅漢最後心")
 
 
 def module_six():

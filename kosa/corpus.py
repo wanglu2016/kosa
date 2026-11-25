@@ -59,7 +59,8 @@ class Verses:
     def check_ontology(self, onto):
         """核對本體（門、定義）註記中的頌文。回傳 [(名, 欄位, 引文, 命中)]。"""
         out = []
-        items = [(d.name, d.notes) for d in onto.dims.values()] + list(onto.def_notes.items())
+        items = ([(d.name, d.notes) for d in onto.dims.values()] + list(onto.def_notes.items())
+                 + [(r.name, r.notes) for r in onto.rels.values()])
         for name, notes in items:
             if "頌" in notes:
                 for quote in re.split(r"[；;]", notes["頌"]):

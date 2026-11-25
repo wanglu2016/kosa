@@ -21,8 +21,17 @@ class Node:
     layer: str
     title: str
     deps: list            # 命題編號
-    onto_deps: list       # 〔本體：…〕
+    onto_deps: list       # 〔本體：…〕原文
     meta: dict
+    def_deps: list = field(default_factory=list)   # 其中的定義（本體約定），逐條檢驗是否必要
+
+
+def onto_names(raw_list):
+    out = []
+    for raw in raw_list:
+        raw = raw.split("：", 1)[1] if "：" in raw else raw
+        out += [x.strip() for x in re.split(r"[、，,]", raw) if x.strip()]
+    return out
 
 
 def nodes(module):
@@ -38,7 +47,8 @@ def nodes(module):
         for d in deps:
             if d not in module.statements:
                 raise ValueError(f"【{sid}】所依的【{d}】不存在")
-        out[sid] = Node(sid, layer, st.meta.get("標題", st.text), deps, onto, st.meta)
+        defs = [x for x in onto_names(onto) if x in module.onto.defs]
+        out[sid] = Node(sid, layer, st.meta.get("標題", st.text), deps, onto, st.meta, defs)
     return out
 
 
@@ -48,6 +58,7 @@ class EdgeCheck:
     ok: bool
     unnecessary: list
     world: object = None
+    needed_defs: list = field(default_factory=list)   # 推不出時：補上哪些定義就推得出（供編者參考）
 
 
 @dataclass
@@ -79,13 +90,28 @@ def verify(engine, goal=None):
     for sid, n in N.items():
         if n.layer not in ("定理", "目標", "推論"):
             continue
-        r = engine.entails(n.deps, sid)
+        # 嚴格模式：只開「依」中列出的本體定義（及其引用的定義、本體結構所需的定義）
+        don = engine.defs_on_for(n.def_deps)
+        r = engine.entails(n.deps, sid, defs_on=don)
         unnecessary = []
+        needed = []
         if r.ok:
             for d in n.deps:
-                if engine.entails([x for x in n.deps if x != d], sid, world=False).ok:
+                if engine.entails([x for x in n.deps if x != d], sid, world=False, defs_on=don).ok:
                     unnecessary.append(d)
-        R.edges[sid] = EdgeCheck(sid, r.ok, unnecessary, r.world)
+            for d in n.def_deps:
+                rest = engine.defs_on_for([x for x in n.def_deps if x != d])
+                if engine.entails(n.deps, sid, world=False, defs_on=rest).ok:
+                    unnecessary.append("〔" + d + "〕")
+        elif engine.entails(n.deps, sid, world=False).ok:
+            # 所依的命題夠了，缺的是本體定義：找一組極小的
+            cur = list(m.onto.defs)
+            for d in list(cur):
+                trial = [x for x in cur if x != d]
+                if engine.entails(n.deps, sid, world=False, defs_on=engine.defs_on_for(trial)).ok:
+                    cur = trial
+            needed = [x for x in cur if x not in engine.defs_on_for(n.def_deps)]
+        R.edges[sid] = EdgeCheck(sid, r.ok, unnecessary, r.world, needed)
     R.consistent = engine.consistent(base).ok
     for a in [s for s in base if N[s].layer == "假定"]:
         R.dependent_assumptions[a] = engine.entails([x for x in base if x != a], a, world=False).ok

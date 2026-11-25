@@ -132,6 +132,8 @@ class LeanExport:
             ax.append((f"類型_{r}", f"∀ x y : W.E, W.{g(r)} x y → ({a}) ∧ ({b}) ∧ x ≠ y"))
             if rel.symmetric:
                 ax.append((f"對稱_{r}", f"∀ x y : W.E, W.{g(r)} x y → W.{g(r)} y x"))
+            if rel.transitive:
+                ax.append((f"傳遞_{r}", f"∀ x y z : W.E, W.{g(r)} x y → W.{g(r)} y z → x ≠ z → W.{g(r)} x z"))
         L.append("/-- 本體公理：適用條件、關係的類型約束、對稱。 -/")
         L.append(f"structure {g('本體公理')} (W : {g('世界')}) : Prop where")
         for n, body in ax:

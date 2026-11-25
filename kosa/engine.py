@@ -146,10 +146,17 @@ class Compiler:
                         app = self.comp_class(parse_class(vap, self.lex), "e", {"e": name}).replace("Ve", "E")
                         R.append(f":- d{j}(E), v(E,{q(dn)},{q(val)}), not {app}.")
         R.append('is(E,V) :- v(E,D,V), V != "—".')
-        for dn, text in onto.defs.items():
+        # 定義是本體約定。每個定義有一個開關 od(k)：開著時，定義項恰等於定義式；
+        # 關著時，定義項成為一個未解釋的類（可真可假）。前提樹檢驗時，只開「依」中列出的定義，
+        # 這樣每一步用到的約定都必須寫出來。
+        self.def_index = {}
+        for k, (dn, text) in enumerate(onto.defs.items()):
+            self.def_index[dn] = k
             ce = parse_class(text, self.lex)
             a = self.comp_class(ce, "e", {"e": "*"})
-            R.append(f"is(Ve,{q(dn)}) :- ent(Ve), {a}.")
+            R.append(f"#external od({k}).")
+            R.append(f"is(Ve,{q(dn)}) :- ent(Ve), {a}, od({k}).")
+            R.append(f"{{ is(Ve,{q(dn)}) }} :- ent(Ve), not od({k}).")
         for pn, p in m.preds.items():
             j = self.sort_index[p.sort]
             if p.kind == "待定":
@@ -165,6 +172,8 @@ class Compiler:
             R.append(f"{{ r({q(rn)},Vx,Vy) }} :- d{ds}(Vx), d{ds}(Vy), Vx != Vy, {a1}, {a2}.")
             if r.symmetric:
                 R.append(f":- r({q(rn)},X,Y), not r({q(rn)},Y,X).")
+            if r.transitive:
+                R.append(f":- r({q(rn)},X,Y), r({q(rn)},Y,Z), X != Z, not r({q(rn)},X,Z).")
         for rn, sname in m.order_rels.items():
             s = m.sorts[sname]
             j = self.sort_index[sname]
@@ -203,6 +212,7 @@ class Engine:
         for sid, f in (extra_targets or {}).items():
             c.statement(sid, f, as_target=True)
         self.c = c
+        self._structural = module.onto.structural_defs()
         self.program = "\n".join(c.rules)
         self._ctl = self._control(minimize=False)
         self._opt = None
@@ -226,20 +236,30 @@ class Engine:
             ctl.assign_external(clingo.Function("on", [clingo.Number(i)]), None)
         for i in self.c.target_index.values():
             ctl.assign_external(clingo.Function("q", [clingo.Number(i)]), None)
+        for i in self.c.def_index.values():
+            ctl.assign_external(clingo.Function("od", [clingo.Number(i)]), None)
 
-    def _assumptions(self, ctl, on, target=None):
+    def defs_on_for(self, listed):
+        """只開列出的定義（連同它們引用的定義、本體結構所需的定義）。"""
+        onto = self.m.onto
+        return onto.def_closure(listed) | self._structural
+
+    def _assumptions(self, ctl, on, target=None, defs_on=None):
         A = []
         for sid, i in self.c.stmt_index.items():
             A.append((clingo.Function("on", [clingo.Number(i)]), sid in on))
         for sid, i in self.c.target_index.items():
             A.append((clingo.Function("q", [clingo.Number(i)]), sid == target))
+        for dn, i in self.c.def_index.items():
+            A.append((clingo.Function("od", [clingo.Number(i)]), defs_on is None or dn in defs_on))
         return A
 
-    def sat(self, on, target=None, want_world=False, minimize=True):
-        """有無模型？target 給定時，求「前提 ∧ 非 target」的模型。"""
+    def sat(self, on, target=None, want_world=False, minimize=True, defs_on=None):
+        """有無模型？target 給定時，求「前提 ∧ 非 target」的模型。
+        defs_on 給定時，只有其中的定義生效（其餘定義項當作未解釋的類）。"""
         self.calls += 1
         if not want_world:
-            res = self._ctl.solve(assumptions=self._assumptions(self._ctl, set(on), target))
+            res = self._ctl.solve(assumptions=self._assumptions(self._ctl, set(on), target, defs_on))
             return res.satisfiable, None
         if minimize:
             if self._opt is None:
@@ -249,14 +269,14 @@ class Engine:
         else:
             ctl = self._ctl
         last = None
-        with ctl.solve(assumptions=self._assumptions(ctl, set(on), target), yield_=True) as h:
+        with ctl.solve(assumptions=self._assumptions(ctl, set(on), target, defs_on), yield_=True) as h:
             for mdl in h:
                 last = mdl.symbols(atoms=True)
             sat = h.get().satisfiable
         return sat, (self._world(last) if last is not None else None)
 
-    def entails(self, on, target, world=True) -> Result:
-        sat, w = self.sat(on, target, want_world=world)
+    def entails(self, on, target, world=True, defs_on=None) -> Result:
+        sat, w = self.sat(on, target, want_world=world, defs_on=defs_on)
         return Result(not sat, w)
 
     def consistent(self, on, world=False) -> Result:

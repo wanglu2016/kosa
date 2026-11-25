@@ -56,6 +56,7 @@ class Relation:
     symmetric: bool
     notes: dict
     fixed_order_sort: str | None = None   # 由次序生成的關係（如「先於」）
+    transitive: bool = False
 
 
 @dataclass
@@ -96,7 +97,9 @@ class Ontology:
             m = re.match(r"關係\s+(\S+?)（(.+?)，(.+?)）(?:〔(.+?)〕)?$", head)
             if not m:
                 raise KosaSyntaxError(f"關係.kosa:{no} 無法解析：{head}")
-            o.rels[m.group(1)] = Relation(m.group(1), (m.group(2), m.group(3)), "對稱" in (m.group(4) or ""), kv)
+            props = m.group(4) or ""
+            o.rels[m.group(1)] = Relation(m.group(1), (m.group(2), m.group(3)), "對稱" in props, kv,
+                                          transitive="傳遞" in props)
         return o
 
     def lexicon(self) -> Lexicon:
@@ -112,6 +115,34 @@ class Ontology:
         for a, b in self.aliases.items():
             lex.add_alias(a, b)
         return lex
+
+    def def_refs(self, text):
+        """類表達式中直接引用的定義名。"""
+        from .lang import tokenize
+        lex = self.lexicon()
+        return {t.text for t in tokenize(text, lex) if t.kind == "NAME" and lex.kind.get(t.text, ("",))[0] == "定義"}
+
+    def def_closure(self, names):
+        """定義及其所引用的定義（遞歸）。"""
+        out, todo = set(), [n for n in names if n in self.defs]
+        while todo:
+            n = todo.pop()
+            if n in out:
+                continue
+            out.add(n)
+            todo += [r for r in self.def_refs(self.defs[n]) if r not in out]
+        return out
+
+    def structural_defs(self):
+        """出現在門的適用條件、關係的類型中的定義：它們是本體結構的一部分，始終施加。"""
+        names = set()
+        for d in self.dims.values():
+            for ap in [d.applies] + list(d.value_applies.values()):
+                if ap:
+                    names |= self.def_refs(ap)
+        for r in self.rels.values():
+            names |= self.def_refs(r.sig[0]) | self.def_refs(r.sig[1])
+        return self.def_closure(names)
 
     def value_dim(self, v):
         for d in self.dims.values():

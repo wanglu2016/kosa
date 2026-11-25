@@ -9,6 +9,7 @@ from .demos import module_one, module_two, module_three, ROOT
 from .lang import show, parse_class
 from .engine import Compiler
 from .lean import LeanExport
+from .tree import onto_names
 from .render import world_html, stage_table_html, world_lines
 from .evaluate import class_holds_attrs, holds
 
@@ -498,6 +499,24 @@ def section_m3(R3):
 """
 
 
+def onto_node_html(m, name):
+    """前提樹中的本體條目：定義顯示為約定（附定義式與頌），門、關係顯示為本體結構。"""
+    onto = m.onto
+    if name in onto.defs:
+        notes = onto.def_notes.get(name, {})
+        song = notes.get("頌", "")
+        src = f'<span class="src">頌「{E(song)}」</span>' if song else ""
+        return (f'<li><span class="node"><span class="lay 約定">約定</span><span class="k">{E(name)}</span>'
+                f'<span>本體定義：{E(name)}＝{E(onto.defs[name])}</span>{src}</span></li>')
+    kind = "門" if name in onto.dims else ("關係" if name in onto.rels else "")
+    extra = ""
+    if name in onto.rels:
+        r = onto.rels[name]
+        props = "、".join(x for x, f in (("對稱", r.symmetric), ("可傳遞", r.transitive)) if f)
+        extra = f"（{props}）" if props else ""
+    return f'<li><span class="node"><span class="lay 本體">本體</span><span class="note">{E(kind)}「{E(name)}」{E(extra)}</span></span></li>'
+
+
 def tree_html(m, R, sid, seen, verse_checks):
     n = R.nodes[sid]
     st = m.statements[sid]
@@ -522,7 +541,7 @@ def tree_html(m, R, sid, seen, verse_checks):
     head += info + "</span>"
     body = f'<div style="margin:2px 0 0"><code>{E(st.text)}</code></div>'
     kids = "".join(tree_html(m, R, d, seen, verse_checks) for d in n.deps)
-    kids += "".join(f'<li><span class="node"><span class="lay 本體">本體</span><span class="note">{E(o)}</span></span></li>' for o in n.onto_deps)
+    kids += "".join(onto_node_html(m, nm) for nm in onto_names(n.onto_deps))
     if not kids:
         return f'<li>{head}{body}</li>'
     return f'<li><details open><summary>{head}</summary>{body}<ul>{kids}</ul></details></li>'
@@ -766,7 +785,7 @@ def section_rebuild(onto, R1, R2, R4):
 """
 
 
-def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True):
+def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True, first_roots=()):
     """前提體系模組（五、六）的通用展示。"""
     m = R["module"]
     T = R["tree"]
@@ -784,8 +803,11 @@ def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True):
         for d in N[x].deps:
             walk(d)
     walk(goal)
-    side_roots = [s for s, n in N.items() if n.layer in ("定理", "推論") and s not in reached]
-    side_trees = "".join(tree_html(m, T, s, set(reached), vc) for s in side_roots)
+    unreached = [s for s, n in N.items() if n.layer in ("定理", "推論") and s not in reached]
+    used = {d for s in unreached for d in N[s].deps}
+    side_roots = list(first_roots) + [s for s in unreached if s not in used and s not in first_roots]
+    seen_side = set(reached)
+    side_trees = "".join(tree_html(m, T, s, seen_side, vc) for s in side_roots)
     edges = []
     for sid, ec in T.edges.items():
         ok = ec.ok and not ec.unnecessary
@@ -817,7 +839,7 @@ def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True):
 <h3>前提樹</h3>
 <p class="note">從目標往下讀。「✓」表示求解器已檢驗：所依推得出它，且所依缺一不可；Lean 另有證明。</p>
 <div class="scroll">{tree}</div>
-{f'<h3>順帶證明的定理</h3><p class="note">不在目標的證明路徑上，但由庫中的條目推出，一併收入。</p><div class="scroll"><ul class="tree">{side_trees}</ul></div>' if side_trees else ''}
+{f'<h3>其他定理</h3><p class="note">不在目標的證明路徑上，但由庫中的條目推出，一併收入。</p><div class="scroll"><ul class="tree">{side_trees}</ul></div>' if side_trees else ''}
 {after_tree}
 <h3>機器檢驗</h3>
 <div class="scroll"><table class="stack"><thead><tr><th>定理</th><th>內容</th><th>所依</th><th>推得出</th><th>缺一不可</th></tr></thead><tbody>{''.join(edges)}</tbody></table></div>
@@ -836,14 +858,17 @@ def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True):
 def section_m5(R5):
     m = R5["module"]
     T = R5["tree"]
-    intro = f"""<p>題目：「阿羅漢最後心是苦諦、集諦。」證明的骨架只有三步：最後心是無覆無記（頌「二無記涅槃」），所以不是道諦（道諦唯善）；它是心，不是無為；所以不是無漏，即有漏；有漏法就是苦諦、集諦（頌「有漏名取蘊……及苦集世間」）。</p>
-<p>題目的眼目在「集」字。阿羅漢最後心之後不再有心生起，它不為等無間緣（頌「等無間非後，心心所已生」）。如果把「集」理解為「能生後心」，就會覺得最後心不該是集諦。有部的「集」是因性：最後心仍是其相應心所的相應因、俱有因，也是能作因。模組把這個誤讀也寫成命題，看它會推出什麼。</p>"""
-    misread = f"""<div class="box"><b>誤讀會推出什麼</b>
-<p>【異讀甲】「集諦之心皆是等無間緣」。它與體系中的條目一起，推出【推論甲】「阿羅漢最後心無」：{'✓ 推得出' if R5['misread'] else '✗'}——最後心是集諦（目標甲）、是心（約甲二），依異讀它必是等無間緣，而頌說它不是（甲假五）。所以依這個讀法，阿羅漢根本沒有最後心。這不是矛盾（全部條目加上異讀仍相容：{'✓' if R5['misread_consistent_empty'] else '✗'}），而是一個荒謬的結論：異讀並不自相矛盾，它只是讓世界裡容不下阿羅漢的最後心。可見「集」不能讀成「能生後心」。</p></div>
-<div class="box"><b>引擎的兩個發現</b>
-<p>一、【約甲一】「無漏即道諦或無為」本以為必不可少，引擎卻判它多餘。原因是本體已把頌「無漏謂道諦，及三種無為」拆成兩半：前一半（無漏的有為法就是道諦）寫進了「道諦」的定義，後一半（無為皆無漏）與心無關。最後心是心，所以是有為；有為而不是道諦，就不是無漏。</p>
-<p>二、目標有 {len(T.goal_minimal)} 條證明路線，差別只在「最後心是心」從哪裡來：可以是約定（約甲二），也可以由頌「最後意識滅」（意識是心）或「非定」（定散之分只屬於心）推出。真正不可少的只有兩條：【甲假一】二無記涅槃、【甲假六】道諦唯善。後者目前只有旁證（「唯善後八根」「無漏有二心」），標為待核。</p></div>"""
-    return tree_section(R5, "m5", "模組五：阿羅漢最後心是苦諦、集諦", intro, misread)
+    intro = f"""<p>題目：「阿羅漢最後心是苦諦、集諦。」證明的全部：最後心是無覆無記（頌「二無記涅槃」），所以不是道諦（道諦唯善）；按定義它是心，不是無為；所以不是無漏，即有漏；有漏法名苦，亦名集（頌「有漏名取蘊……及苦集世間」）。</p>
+<p>最後一步含一個約定：苦諦、集諦的範圍相等。上一版把它藏在兩個定義裡；這一版把它列為【定甲九】，放在目標的正下方。「阿羅漢最後心」也改為定義（【約甲二】）：阿羅漢心相續的最後一剎那心。</p>
+<p>第二部分證明上一版的待核假定「相應的心、心所同性」（原甲假九，現為【定甲八】）。證明逼出了更基礎的條目，見下面「其他定理」的第一棵樹。</p>"""
+    box = f"""<div class="box"><b>本體約定不再隱藏</b>
+<p>為了讓「苦集同範圍」這類約定無處可藏，引擎改了規則：檢驗一條定理時，<b>只有「依」中列出的本體定義才生效</b>，其餘定義項一律當作意義不明的詞。這樣，一步推理若用到「苦諦即有漏」「道諦即無漏的有為」，就必須寫出來，否則判為推不出；寫了而沒用到，又判為多餘。前提樹中，這些本體定義顯示為「約定」節點，附定義式與頌文。</p>
+<p>按新規則重跑，模組四、六也各有幾步原來沒寫出它所用的定義（如「業」「有記」「二定以上」「生二定以上」），都已補上。</p></div>
+<div class="box"><b>相應法同性：逼出了什麼</b>
+<p>要證明「相應的心、心所同性」，先要知道一法的善惡從哪裡來。頌「勝義善解脫，自性慚愧根，相應彼相應，等起色業等，翻此名不善」說四種：心、心所不是勝義（甲假十），也不由等起（甲假十一，等起只成色業與不相應行），所以只能是自性善，或「彼相應」——與自性善相應（甲假十二、十三）。</p>
+<p>證明在這裡卡了一下：x 與自性善 z 相應，y 與 x 相應，y 是否也與 z 相應？這要求相應可以傳遞。它不是假定，而是由相應五義推出的定理（定甲七）：相應就是同所依、同所緣、同行相、同時，「同」是相等關係，自然可以傳遞。於是「一聚心、心所兩兩相應」也成了定理。</p>
+<p>剩下兩條待核（甲假十二、十三）：頌只說善、不善，把有覆無記也照此處理是類推。若您認可這一類推，或給出有覆無記的依據，相應法同性就完全落在文獻上。</p></div>"""
+    return tree_section(R5, "m5", "模組五：阿羅漢最後心是苦諦、集諦", intro, box, first_roots=("定甲八",))
 
 
 def section_m6(R6):
@@ -901,7 +926,7 @@ def lean_axioms():
     chk = lean_dir / ".axcheck.lean"
     names = ["M1.«有覆無記色唯初靜慮繫»", "M1.«欲無有覆表»", "M1.«有覆無記色唯初靜慮繫_頌文版»", "M1.«轉讀法之衝突»"]
     names += [f"M4.«{t}»" for t in ("定一成立", "定二成立", "定三成立", "定四成立", "定五成立", "定六成立", "定七成立", "定七乙成立", "定八成立", "目標成立", "目標由諸假定")]
-    names += [f"M5.«{t}»" for t in ("目標甲由諸假定", "目標甲_以意識代心", "定甲三成立", "定甲四成立", "定甲六成立", "推論甲成立")]
+    names += [f"M5.«{t}»" for t in ("目標甲由諸假定", "目標甲_以意識代定義", "相應同性由諸假定", "定甲三成立", "定甲四成立", "定甲六成立")]
     names += [f"M6.«{t}»" for t in ("目標乙由諸假定", "目標乙_經無漏", "定乙三成立", "定乙四成立")]
     chk.write_text("import Kosa\n" + "".join(f"#print axioms Kosa.{n}\n" for n in names), encoding="utf-8")
     env = dict(__import__("os").environ)
@@ -943,7 +968,7 @@ def build(out: Path):
     nwei = len(onto.dims["色自性"].values) + 1 + len(onto.dims["心所自性"].values) + len(onto.dims["不相應自性"].values) + len(onto.dims["無為自性"].values)
     stats = f"""<div class="stats">
 <div class="stat"><b>{nwei} 法</b><span>本體按五位立自性：色 {len(onto.dims['色自性'].values)}、心 1、心所 {len(onto.dims['心所自性'].values)}、心不相應行 {len(onto.dims['不相應自性'].values)}、無為 {len(onto.dims['無為自性'].values)}</span></div>
-<div class="stat ok"><b>{'✓' if ok5 else '✗'} 題一</b><span>阿羅漢最後心是苦諦、集諦。無論走哪條路都不可少的只有 {len(must5)} 條：{'、'.join(must5)}</span></div>
+<div class="stat ok"><b>{'✓' if ok5 else '✗'} 題一</b><span>阿羅漢最後心是苦諦、集諦。不可少的假定只有 {len(must5)} 條：{'、'.join(must5)}；「相應法同性」也已由假定證出</span></div>
 <div class="stat"><b>{'✓*' if ok6 else '✗'} 題二</b><span>阿那含必然成就初靜慮。* 有條件：{len(T6.goal_minimal)} 條證明路線都要用到待核的乙假十二——引擎找到了一種說不清的不還</span></div>
 <div class="stat ok"><b>Lean</b><span>兩題的每條定理都由 Lean 證明，對任意大小的世界成立</span></div>
 <div class="stat"><b>{npend} 條</b><span>待核的假定，列在「知識庫總表」，請您確認</span></div>
