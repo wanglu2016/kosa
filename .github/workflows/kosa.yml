@@ -1,0 +1,77 @@
+# 每次提交，GitHub 的雲端機器自動：
+#   1. 按命題文件重新生成 Lean 定義，用 Lean 檢查全部證明（並審核不得有 sorry 等額外公理）；
+#   2. 核對頌文引用，逐條檢驗前提體系；
+#   3. 重跑全部模組，生成報告，發佈到 GitHub Pages。
+# 即使第 1、2 步有不通過之處，報告也照樣生成、發佈，好讓你在網頁上看到哪裡出了問題；
+# 但整次運行會標為紅叉。全部通過則為綠勾。
+name: Kosa 檢驗
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝求解器與字體工具
+        run: pip install clingo fonttools brotli
+
+      - name: 按命題文件重新生成 Lean 定義
+        run: python3 -m kosa lean
+
+      - name: Lean：檢查全部證明
+        id: lean
+        continue-on-error: true
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: lean
+          test: false
+          use-mathlib-cache: false
+          axiom-audit: true
+
+      - name: 頌文核對與前提體系逐條檢驗
+        id: verify
+        continue-on-error: true
+        run: python3 -m kosa 驗證
+
+      - name: 重跑全部模組，生成報告
+        run: python3 -m kosa 報告
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: 報告
+
+      - name: 總結
+        if: steps.lean.outcome == 'failure' || steps.verify.outcome == 'failure'
+        run: |
+          echo "Lean 證明檢查：${{ steps.lean.outcome }}"
+          echo "頌文核對與前提體系檢驗：${{ steps.verify.outcome }}"
+          echo "有不通過之處。報告已照常生成並發佈，請到網頁上查看。"
+          exit 1
+
+  deploy:
+    needs: check
+    if: always() && github.ref == 'refs/heads/main' && needs.check.result != 'cancelled'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

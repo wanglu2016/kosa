@@ -1,0 +1,7 @@
+# Lean 構建產物
+lean/.lake/
+# Python
+__pycache__/
+*.pyc
+# 報告由 python3 -m kosa 報告 生成；線上版本由 GitHub 自動運行生成並發佈
+報告/
