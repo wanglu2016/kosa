@@ -276,6 +276,8 @@ class Module:
         if m.explicit:
             m._library_dims()
             m._structure()
+            m._split_existential()
+            m._example_witness()
         elif m.auto_dims:
             m._auto_dims()
         m._check_dims()
@@ -328,13 +330,120 @@ class Module:
                 raise KosaSyntaxError(f"條目編號「{sid}」與本體結構條目重名")
         self.statements = {**out, **self.statements}
 
+    def _split_existential(self):
+        """把含存在部分的命題拆開：全稱部分「編號・全」、各存在部分「編號・有1」「編號・有2」……
+        有界世界只有幾個元素，全部存在命題一起考就裝不下；所以全稱部分合考，存在部分逐條與全稱部分合考。
+        （「A 通 B、C」＝ 凡 A 皆 B 或 C，且有 A 是 B、有 A 是 C：全稱一部分、存在兩部分。）"""
+        add = {}
+        for sid, st in self.statements.items():
+            if st.meta.get("_結構"):
+                continue
+            f = st.formula
+            conj = f[1] if f[0] == "且" else [f]
+            ex = [g for g in conj if g[0] == "有"]
+            if not ex:
+                continue
+            un = [g for g in conj if g[0] != "有"]
+            st.meta["_部分"] = []
+            if un:
+                pid = f"{sid}・全"
+                g = un[0] if len(un) == 1 else ("且", un)
+                add[pid] = Statement(pid, show(g), g, "全稱部分", {"_屬": sid, "_部": "全"}, st.line)
+                st.meta["_部分"].append(pid)
+            for i, g in enumerate(ex, 1):
+                pid = f"{sid}・有{i}" if len(ex) > 1 else f"{sid}・有"
+                add[pid] = Statement(pid, show(g), g, "存在部分", {"_屬": sid, "_部": "有"}, st.line)
+                st.meta["_部分"].append(pid)
+        self.statements.update(add)
+
+    def _example_witness(self):
+        """題目（有「答」的條目、臨時判定的命題）若是「凡 A 皆……」，另立「編號・例」＝有 A，
+        供判定「未決」時給一個不空的實例世界（否則最小的實例常是空世界，看不出甚麼）。"""
+        add = {}
+        for sid, st in self.statements.items():
+            if not (st.meta.get("答") or sid == "待判"):
+                continue
+            f = st.formula
+            if f[0] == "凡" and len(f[1]) == 1 and f[2][0] in ("⇒", "⇔") and f[2][1][0] == "屬":
+                pid = f"{sid}・例"
+                g = ("有", f[1], f[2][1])
+                add[pid] = Statement(pid, show(g), g, "實例", {"_屬": sid, "_部": "例"}, st.line)
+        self.statements.update(add)
+
     def structure_ids(self):
         return [s for s, st in self.statements.items() if st.meta.get("_結構")]
 
     def entry_ids(self):
-        """命題庫的條目（不含本體結構條目、題目）。"""
+        """命題庫的條目（不含本體結構條目、題目、拆出的部分）。"""
         return [s for s, st in self.statements.items()
                 if not st.meta.get("_結構") and st.meta.get("_庫") and not st.meta.get("答")]
+
+    def parts(self, sid):
+        """一條命題拆成的部分；沒有存在部分的，就是它自己。"""
+        return self.statements[sid].meta.get("_部分") or [sid]
+
+    def universal_base(self):
+        """全稱的底子：本體結構條目、無存在部分的條目、有存在部分者的全稱部分。"""
+        out = self.structure_ids()
+        for s in self.entry_ids():
+            out += [p for p in self.parts(s) if self.statements[p].meta.get("_部") != "有"]
+        return out
+
+    def content_names(self, sid):
+        """一條命題涉及的詞（定義展開到門值；門值連同其門）：用來判斷兩條命題是否相關。"""
+        cache = self.__dict__.setdefault("_names", {})
+        if sid in cache:
+            return cache[sid]
+        out = set()
+
+        def cls(ce):
+            k = ce[0]
+            if k == "名":
+                n = ce[1]
+                info = self.lex.kind.get(n, ("",))
+                if info[0] == "定義":
+                    if n not in out:
+                        out.add(n)
+                        cls(parse_class(self.onto.defs[n], self.lex))
+                elif info[0] == "值":
+                    out.add(n)
+                    out.add(info[1])
+                elif info[0] == "謂詞":
+                    out.add(n)
+                return
+            for c in (ce[1] if k in ("且", "或") else [ce[1]]):
+                cls(c)
+
+        def walk(f):
+            k = f[0]
+            if k in ("凡", "有"):
+                walk(f[2])
+            elif k in ("且", "或"):
+                for g in f[1]:
+                    walk(g)
+            elif k == "非":
+                walk(f[1])
+            elif k in ("⇒", "⇔"):
+                walk(f[1])
+                walk(f[2])
+            elif k == "屬":
+                cls(f[1])
+            elif k == "係":
+                out.add(f[1])
+            elif k == "同門":
+                out.add(f[1])
+        walk(self.statements[sid].formula)
+        cache[sid] = out
+        return out
+
+    def relevant(self, a, b):
+        """兩條命題有沒有共用的詞（不計「法類」這類幾乎處處出現的門）。"""
+        common = self.content_names(a) & self.content_names(b)
+        return bool(common - {"法類"})
+
+    def existence_facts(self):
+        """命題庫中的存在部分（逐條與全稱底子合考）。"""
+        return [p for s in self.entry_ids() for p in self.parts(s) if self.statements[p].meta.get("_部") == "有"]
 
     def _read(self, path: Path, pending, lib_meta=None):
         m, lex = self, self.lex

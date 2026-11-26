@@ -4,8 +4,14 @@
   證否  命題庫推得出它的否定。附推出否定的極小前提。
   未決  兩者都推不出：庫不知道。附一個它成立的世界（實例）、一個它不成立的世界（反例）。
 
-「證成」「證否」是有界的結論：求解器只窮盡至多若干個法、若干個有情的世界。
-「未決」反而是確定的：實例和反例都是真的模型。重要的「證成」要再由 Lean 證明。
+「證成」「證否」是有界的結論：求解器只窮盡至多若干個法、若干個有情的世界。重要的「證成」要再由 Lean 證明。
+
+存在命題的處理：有界世界只有幾個元素，庫中全部存在命題一起考就裝不下。所以庫分兩部分：
+全稱的底子 U（本體結構、全稱命題、「通」之類命題的全稱部分），以及存在部分 E（逐條考）。
+  證成：U 推得出它；或 U 加上某一條存在部分推得出它（待判命題的各部分分別考）。
+  證否：U 加上它沒有模型；或 U、某一條存在部分、它三者沒有模型。
+  未決：以上都不成立。實例取自 U 加上它的模型，反例取自 U 加上它的否定的模型——
+        這兩個世界只滿足 U，未必同時滿足全部存在部分，所以「未決」不是確定的結論。
 
 題庫中「答」寫書中的答案：成立、有、可能 → 應證成；不成立、無、不可能 → 應證否。
 比對結果三種：一致、未決（庫沒覆蓋到，不算錯）、相違（庫的結論與書相反，必須處理）。
@@ -31,6 +37,7 @@ class Verdict:
     example: object = None        # 未決時：它成立的世界
     counter: object = None        # 未決時：它不成立的世界
     expected: str = ""            # 書中答案（原文）
+    vacuous: str = ""             # 未決且只能空真地成立時：主語（如「身表」）——缺的是「有身表」這類存在命題
     pending: list = field(default_factory=list)    # 前提中「待核」者
 
     @property
@@ -55,30 +62,75 @@ class Verdict:
 
 class Judge:
     """一個命題庫（連同若干待判命題）的判定器。"""
+    TOP = 20     # 每次只試最相關的若干條存在部分（只影響完備性；見 skill〈坑〉「速度」）
 
     def __init__(self, module: Module):
         self.m = module
         self.e = Engine(module)
-        self.base = module.structure_ids() + module.entry_ids()
+        self.U = module.universal_base()
+        self.E = module.existence_facts()
+        self.base = self.U + self.E     # 供消融檢驗、統計用
 
     def _shrink(self, items, pred):
         return self.e.minimize(items, pred)
 
+    def _candidates(self, sid):
+        """與 sid 相關的存在部分（有共用的詞），共用詞多的排在前面。
+        只影響完備性，不影響可靠性：不相關的存在部分不拿來試。"""
+        mine = self.m.content_names(sid) - {"法類"}
+        scored = [(len(self.m.content_names(x) & mine), i, x) for i, x in enumerate(self.E) if x != sid]
+        return [x for k, i, x in sorted(scored, key=lambda t: (-t[0], t[1])) if k][:self.TOP]
+
+    def _prove(self, part):
+        """一個部分：U 推得出它，或 U 加一條（相關的）存在部分推得出它。回傳所用的前提（極小），推不出回傳 None。
+        全稱部分只用 U：一條存在命題幫不了全稱的結論（除非庫自相矛盾）。"""
+        e, U = self.e, self.U
+        st = self.m.statements[part]
+        extras = [[]] + ([[x] for x in self._candidates(part)] if st.formula[0] == "有" else [])
+        for extra in extras:
+            if e.entails(U + extra, part, world=False).ok:
+                return self.e.minimize(U + extra, lambda S: e.entails(list(S), part, world=False).ok)
+        return None
+
+    def _refute(self, sid):
+        """U（或 U 加一條存在部分）與它不相容。回傳極小前提，相容回傳 None。"""
+        e, U = self.e, self.U
+        for extra in [[]] + [[x] for x in self._candidates(sid)]:
+            if not e.consistent(U + extra + [sid]).ok:
+                return self.e.minimize(U + extra, lambda S: not e.consistent(list(S) + [sid]).ok)
+        return None
+
     def judge(self, sid, expected=""):
-        e = self.e
-        pos = e.entails(self.base, sid, world=False).ok
-        neg = not e.consistent(self.base + [sid]).ok
-        if pos and neg:
+        e, m = self.e, self.m
+        parts = m.parts(sid)
+        # 先看全稱底子是否已推出它的否定：若是，它不可能由 U 加一條存在部分證成
+        #（每條存在部分都已檢驗與 U 相容，見〈驗證〉），不必再逐條試。
+        if not e.consistent(self.U + [sid]).ok:
+            prem = self.e.minimize(self.U, lambda S: not e.consistent(list(S) + [sid]).ok)
+            return Verdict(sid, "證否", prem, expected=expected, pending=self._pending(prem))
+        proofs = [self._prove(p) for p in parts]
+        pos = all(x is not None for x in proofs)
+        # 證成了就不再逐條找反駁：U 加某條存在部分若與它不相容，那是兩條存在部分彼此不相容，屬於全庫的問題，不在這裡查
+        refut = None if pos else self._refute(sid)
+        if pos and refut is not None:
             return Verdict(sid, "矛盾", expected=expected)
         if pos:
-            prem = self._shrink(self.base, lambda S: e.entails(S, sid, world=False).ok)
+            prem = list(dict.fromkeys(x for pr in proofs for x in pr))
             return Verdict(sid, "證成", prem, expected=expected, pending=self._pending(prem))
-        if neg:
-            prem = self._shrink(self.base, lambda S: not e.consistent(list(S) + [sid]).ok)
-            return Verdict(sid, "證否", prem, expected=expected, pending=self._pending(prem))
-        ex = e.consistent(self.base + [sid], world=True).world
-        cx = e.entails(self.base, sid).world
-        return Verdict(sid, "未決", example=ex, counter=cx, expected=expected)
+        if refut is not None:
+            return Verdict(sid, "證否", refut, expected=expected, pending=self._pending(refut))
+        ex, vac = None, ""
+        if f"{sid}・例" in m.statements:
+            r = e.consistent(self.U + [sid, f"{sid}・例"], world=True)
+            if r.ok:
+                ex = r.world
+            else:
+                from .lang import show_class
+                vac = show_class(m.statements[sid].formula[2][1][1])
+        if ex is None:
+            ex = e.consistent(self.U + [sid], world=True).world
+        cx = e.entails(self.U, sid).world
+        return Verdict(sid, "未決", example=ex, counter=cx, expected=expected, vacuous=vac)
 
     def verdict_only(self, sid, base):
         e = self.e
@@ -98,7 +150,8 @@ class Judge:
         return out
 
     def _pending(self, ids):
-        return [s for s in ids if self.m.statements[s].meta.get("狀態") == "待核"]
+        own = lambda s: self.m.statements[s].meta.get("_屬", s)
+        return list(dict.fromkeys(own(s) for s in ids if self.m.statements[own(s)].meta.get("狀態") == "待核"))
 
 
 def load_bank(path: Path):

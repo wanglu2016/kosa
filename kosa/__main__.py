@@ -172,10 +172,12 @@ def main(argv):
         c = S.counts
         print(f"命題條目 {c['命題條目']}，本體結構條目 {c['本體結構條目']}；門 {c['門']}、門值 {c['門值']}、定義 {c['定義']}、關係 {c['關係']}")
         if not S.consistent:
-            sys.exit("命題庫自相矛盾。用「python3 -m kosa 相容」找極小衝突集。")
+            if S.bad_existence:
+                sys.exit("這些存在部分與全稱部分不相容：" + "、".join(S.bad_existence))
+            sys.exit("命題庫的全稱部分自相矛盾。")
         print(f"施設 {c['施設']}（其中核心 {c['其中核心']}），推出 {c['推出']}")
         for s in S.ids("推出"):
-            print(f"  推出【{s}】{lib.statements[s].meta.get('標題', lib.statements[s].text)} ← {'、'.join(S.entries[s].premises) or '本體定義'}")
+            print(f"  推出【{s}】{lib.statements[s].meta.get('標題', lib.statements[s].text)} ← {'、'.join(S.entry(s).premises) or '本體定義'}")
         print("非核心的施設（可與別的條目互推，選它作施設是一種選擇）：" + "、".join(S.ids("施設", False)))
     elif cmd == "題庫":
         from .judge import run_bank, all_banks
@@ -209,9 +211,13 @@ def main(argv):
                 st = m.statements[s]
                 print(f"  【{s}】{st.text}  —— {st.meta.get('標題', '')}" + ("（待核）" if st.meta.get("狀態") == "待核" else ""))
         elif x.verdict == "未決":
-            print("命題庫推不出它，也推不出它的否定。它成立的世界：")
-            for l in world_lines(x.example, m):
-                print("  " + l)
+            if x.vacuous:
+                print(f"命題庫推不出它，也推不出它的否定。它只在沒有「{x.vacuous}」的世界裡成立："
+                      f"若「{x.vacuous}」存在，它就不成立。庫中缺「{x.vacuous} 容有」這類存在命題，所以判不出。")
+            else:
+                print("命題庫推不出它，也推不出它的否定。它成立的世界：")
+                for l in world_lines(x.example, m):
+                    print("  " + l)
             print("它不成立的世界：")
             for l in world_lines(x.counter, m):
                 print("  " + l)

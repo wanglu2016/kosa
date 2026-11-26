@@ -430,6 +430,11 @@ def parse_statement(src: str, lex: Lexicon, default_sort: str, infer: bool = Tru
         if parts[1] == "無":
             return ("非", ("有", [(x, d)], ("屬", A, x))), "無"
         return ("有", [(x, d)], ("屬", A, x)), "容有"
+    if len(parts) == 2 and parts[1] == "各容有":
+        Cs = [_class(y, lex, default_sort) for y in _split_list(parts[0])]
+        d = srt(*Cs)
+        exs = [("有", [(x, d)], ("屬", C, x)) for C in Cs]
+        return (exs[0] if len(exs) == 1 else ("且", exs)), "各容有"
     if len(parts) == 2 and parts[1] == "互斥":
         Cs = [_class(y, lex, default_sort) for y in _split_list(parts[0])]
         if len(Cs) < 2:

@@ -49,8 +49,8 @@ class LeanExport:
 
     def exportable(self, sid):
         st = self.m.statements[sid]
-        if st.meta.get("_結構"):
-            return False          # 本體結構在 Lean 中由「世界」的定義本身保證（門是函數）
+        if st.meta.get("_結構") or st.meta.get("_屬"):
+            return False          # 本體結構在 Lean 中由「世界」的定義本身保證（門是函數）；拆出的部分不另導出
         return statement_sorts(st.formula) <= {self.sort_name}
 
     def dim_has_dash(self, d):
@@ -221,7 +221,7 @@ def check_file(module, proof_dir, namespaces):
         L += [f"namespace {ns}", ""]
         for sid, deps in items:
             hyps = " ".join(f"(h{i} : {g(d)} W)" for i, d in enumerate(deps, 1))
-            L.append(f"example (W : {g('世界')}) (O : {g('本體公理')} W) {hyps} : {g(sid)} W := by")
+            L.append(f"example (W : {g("世界")}) (_O : {g("本體公理")} W) {hyps} : {g(sid)} W := by")
             L.append(f"  apply {g(sid + '成立')} W <;> assumption")
             L.append("")
         L += [f"end {ns}", ""]

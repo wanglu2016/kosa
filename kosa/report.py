@@ -505,9 +505,12 @@ KIND_LABEL = {"目標": "目標", "推導": "推導", "前提": "前提", "本�
 
 def role_badge(S, sid):
     """結構計算給出的身分：施設（核心）、施設、推出。"""
-    if S is None or sid not in S.entries:
+    if S is None:
         return ""
-    x = S.entries[sid]
+    try:
+        x = S.entry(sid)
+    except KeyError:
+        return ""
     if x.role == "推出":
         return '<span class="chip">推出</span>'
     return '<span class="chip blue">施設・核心</span>' if x.independent else '<span class="chip blue">施設</span>'
@@ -617,7 +620,7 @@ def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True, first
 <div class="scroll"><table class="stack"><thead><tr><th>條目</th><th>內容</th><th>所依</th><th>推得出</th><th>缺一不可</th></tr></thead><tbody>{''.join(edges)}</tbody></table></div>
 <ul>
 <li>命題庫全部條目彼此相容：{'✓' if T.consistent else '✗'}。</li>
-<li>目標在命題庫中的極小前提集（不計本體結構條目）有 {len(T.goal_minimal)} 個，即 {len(T.goal_minimal)} 條互不包含的證明路線：<ol>{mins}</ol>每一條都用到：{tags(sorted(common, key=list(N).index))}。</li>
+<li>目標在命題庫中的極小前提集（不計本體結構條目）{'至少' if len(T.goal_minimal) >= 10 else ''}有 {len(T.goal_minimal)} 個，即{'至少' if len(T.goal_minimal) >= 10 else ''} {len(T.goal_minimal)} 條互不包含的證明路線{'（只列前 10 條）' if len(T.goal_minimal) >= 10 else ''}：<ol>{mins}</ol>每一條都用到：{tags(sorted(common, key=list(N).index))}。</li>
 <li>前提樹最終依賴 {len([x for x in T.closure[goal] if N[x].kind == '前提'])} 條前提、{len([x for x in T.closure[goal] if N[x].kind == '本體'])} 條本體結構條目；其中待核的：{tags(pend_goal) or '無'}。</li>
 <li>用到的本體結構條目：{tags(struct_used)}。v0.4 以前，這些由引擎默默施加；現在必須寫在「依」裡。</li>
 </ul>
@@ -709,7 +712,7 @@ def section_extend():
 <h2 id="extend">還沒有做的</h2>
 <ul>
 <li><b>人法同一世界。</b>引擎已能讓法與有情同在一個世界，關係可以跨論域；但「成就某定」仍寫成有情的謂詞，下一步改為關係「成就（有情，法）」，並分開「繫」（有漏法屬何地）與「地」（無漏法依何地）。</li>
-<li><b>《俱舍萬字》第一遍。</b>第一、二章的概念、分類與門分別命題入庫是當前的工作；第三至六章（因緣果、業、定、道、世間）在後。</li>
+<li><b>《俱舍萬字》第一遍。</b>第二章第三節（二十二根）以後尚未做；第一章的四相、四有、漏隨增，第二章第一節的三地（尋伺）、無漏依地，因缺時間、依地的模型而暫缺。</li>
 <li><b>計數。</b>「十八界中幾有漏」「十七七八四」一類以類為對象的計數，還沒有寫進語言（模組二在語言之外用求解器計數）。</li>
 <li><b>Lean 證明跟上。</b>新入庫、可由其餘推出的條目，目前只有求解器的有界檢驗；Lean 證明待補。</li>
 <li><b>語料。</b>只有《俱舍論頌》；《俱舍》長行、《正理》《婆沙》未入庫，出處欄只是文字說明，不能自動核對。</li>
@@ -817,14 +820,22 @@ def section_bank(banks):
                     why = f"前提：{tags(v.premises)}" if v.premises else "由本體定義直接得出"
                     if v.pending:
                         why += f"<br><span class='pend'>其中待核：{E('、'.join(v.pending))}</span>"
+                elif v.verdict == "未決" and v.vacuous:
+                    why = f"只在沒有「{E(v.vacuous)}」的世界裡成立；庫中缺「{E(v.vacuous)} 容有」。反例：" + world_html(v.counter, m)
                 elif v.verdict == "未決":
                     why = "實例：" + world_html(v.example, m) + "反例：" + world_html(v.counter, m)
                 else:
                     why = "命題庫自相矛盾"
                 t = f"<td rowspan='{len(vs)}'>{E(title)}</td>" if i == 0 else ""
                 rows.append(f"<tr>{t}<td><code>{E(st.text)}</code></td><td>{E(v.expected)}</td><td class='{MATCH_CLASS[v.match]}'>{E(v.verdict)}（{E(v.match)}）</td><td class='note'>{why}</td></tr>")
-        parts.append(f"""<h3>{E(m.title.split('・', 1)[-1])}</h3>
-<div class="scroll"><table class="stack"><thead><tr><th>題</th><th>Kosa 命題</th><th>書中</th><th>引擎</th><th>理由</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>""")
+        from collections import Counter
+        cm = Counter(v.match for v in out)
+        table = f"""<div class="scroll"><table class="stack"><thead><tr><th>題</th><th>Kosa 命題</th><th>書中</th><th>引擎</th><th>理由</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"""
+        intro = E(m.notes.get("說明", "")) if getattr(m, "notes", None) else ""
+        if len(out) > 30:
+            table = f"<details><summary>逐題結果（{len(out)} 題）</summary>{table}</details>"
+        parts.append(f"""<h3>{E(m.title.split('・', 1)[-1])}：一致 {cm['一致']}、未決 {cm['未決']}、相違 {cm['相違']}</h3>
+{f'<p>{intro}</p>' if intro else ''}{table}""")
     return f"""
 <h2 id="bank">題庫：{c['一致']} 一致、{c['未決']} 未決、{c['相違']} 相違</h2>
 <p>題目取自《俱舍九題》前兩題的四道例題，共 {tot_a} 個原子問題。引擎只用命題庫作答。v0.5 起判定改為三值：</p>
@@ -858,7 +869,7 @@ def section_lib(lib, S, verse_checks):
             else:
                 vb = verse_badge(verse_checks, sid)
                 src = vb if vb else E(st.meta.get("依據", "") or st.meta.get("出處", ""))
-            x = S.entries.get(sid)
+            x = S.entry(sid)
             if x and x.role == "推出":
                 src += f"<br><span class='note'>機器所得的前提：</span>{tags(x.premises) or '（本體定義）'}"
             rows.append(f"<tr><td class='k'>{E(sid)}</td><td>{role_badge(S, sid)} {'<span class=pend>待核</span>' if pend else ''}</td><td>{E(st.meta.get('標題', ''))}<br><code>{E(st.text)}</code></td><td class='note'>{src}</td></tr>")
@@ -874,20 +885,49 @@ def section_lib(lib, S, verse_checks):
 """
 
 
+def section_wanzi(lib, S):
+    """《俱舍萬字》形式化進度：按節統計出處引《萬字》的條目。"""
+    import json
+    secs = {}
+    for sid in lib.entry_ids():
+        src = lib.statements[sid].meta.get("出處", "")
+        for mm in re.finditer(r"《俱舍萬字》(\d+)\.(\d+)", src):
+            secs.setdefault(f"{mm.group(1)}.{mm.group(2)}", []).append(sid)
+            break
+    titles = {"1.1": "一切法、四諦", "1.2": "五蘊、十二處、十八界", "1.3": "七十五法", "2.1": "三界十五部", "2.2": "九十八隨眠",
+              "2.3": "二十二根", "2.4": "諸心", "2.5": "十智", "2.6": "慧、忍、智、見"}
+    rows = []
+    for k, t in titles.items():
+        ids = secs.get(k, [])
+        der = [x for x in ids if S.entry(x).role == "推出"]
+        rows.append(f"<tr><td class='k'>{k}</td><td>{E(t)}</td><td class='num'>{len(ids)}</td><td class='num'>{len(der)}</td><td>{tags(ids[:12])}{' …' if len(ids) > 12 else ''}</td></tr>")
+    return f"""
+<h2 id="wanzi">《俱舍萬字》第一遍</h2>
+<p>按作者的安排，《俱舍萬字》整體走一遍：第一遍先把概念、分類與直接寫出的門分別命題放進庫。下表是各節入庫的條目數，以及其中結構計算判為「推出」的條數——一節中推出的條目越多，說明這一節的內容越多已由更基礎的條目（常常只是本體的門與定義）蘊含。第二章第三節以後尚未做。</p>
+<div class="scroll"><table class="stack"><thead><tr><th>節</th><th>內容</th><th class="num">條目</th><th class="num">推出</th><th>條目</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<p class="note">名目（列舉、定義）寫在本體 <code>本體/定義.kosa</code>，出處同樣標《萬字》段號；表中只計命題庫的條目。</p>
+"""
+
+
 def section_structure(lib, S):
     c = S.counts
     derived = "".join(
-        f"<tr><td class='k'>{E(s)}</td><td>{E(lib.statements[s].meta.get('標題', lib.statements[s].text))}</td><td>{tags(S.entries[s].premises) or '（只用本體定義）'}</td></tr>"
+        f"<tr><td class='k'>{E(s)}</td><td>{E(lib.statements[s].meta.get('標題', lib.statements[s].text))}</td><td>{tags(S.entry(s).premises) or '（只用本體定義）'}</td></tr>"
         for s in S.ids("推出"))
     choice = [s for s in S.ids("施設", False)]
     struct_rows = []
     for s in lib.structure_ids():
-        x = S.entries[s]
+        x = S.entry(s)
         struct_rows.append(f"<tr><td class='k'>{E(s)}</td><td>{E(lib.statements[s].text)}</td><td>{role_badge(S, s)}</td><td>{tags(x.premises) if x.role == '推出' else ''}</td></tr>")
     cores = [s for s in S.ids("施設", True) if not lib.statements[s].meta.get("_結構")]
     core_rows = []
+    from .engine import Engine as _Eng
+    eng = _Eng(lib)
+    U = lib.universal_base()
     for s in cores[:12]:
-        x = S.entries[s]
+        x = S.entry(s)
+        if x.counter is None and s in U:
+            x.counter = eng.entails([y for y in U if y != s], s).world
         if x.counter is not None:
             core_rows.append(f"<tr><td class='k'>{E(s)}</td><td>{E(lib.statements[s].meta.get('標題', ''))}<br><code>{E(lib.statements[s].text)}</code></td><td>{world_html(x.counter, lib, target_hits(x.counter, lib, s))}</td></tr>")
     return f"""
@@ -942,8 +982,9 @@ def build(out: Path):
     font_link = '<link rel="stylesheet" href="assets/fonts/fonts.css">' if fonts_ok else ""
     lib = load_library()
     t0 = time.time()
-    S = analyze(lib)
+    S = analyze(lib, worlds=False)
     t_struct = time.time() - t0
+    eng = None
     t0 = time.time()
     banks = [run_bank(p) for p in all_banks()]
     t_bank = time.time() - t0
@@ -970,7 +1011,7 @@ def build(out: Path):
 <div class="stat ok"><b>Lean</b><span>有「依」的條目由 Lean 證明，並自動檢驗證明只用「依」所列的條目</span></div>
 <div class="stat"><b>{npend} 條</b><span>標「待核」的條目（形式化時把握不足）</span></div>
 </div>"""
-    nav = """<nav class="scroll"><a href="#v05">v0.5</a><a href="#bank">題庫</a><a href="#library">命題庫</a><a href="#structure">結構</a><a href="#m5">阿羅漢最後心</a><a href="#m6">阿那含</a><a href="#tree">模組四</a><a href="#lean">Lean</a><a href="#verses">引文核對</a><a href="#ontology">本體</a><a href="#language">命題語言</a><a href="#m1">模組一</a><a href="#m2">模組二</a><a href="#m3">模組三</a><a href="#extend">待辦</a><a href="#run">運行</a></nav>"""
+    nav = """<nav class="scroll"><a href="#v05">v0.5</a><a href="#bank">題庫</a><a href="#library">命題庫</a><a href="#wanzi">萬字</a><a href="#structure">結構</a><a href="#m5">阿羅漢最後心</a><a href="#m6">阿那含</a><a href="#tree">模組四</a><a href="#lean">Lean</a><a href="#verses">引文核對</a><a href="#ontology">本體</a><a href="#language">命題語言</a><a href="#m1">模組一</a><a href="#m2">模組二</a><a href="#m3">模組三</a><a href="#extend">待辦</a><a href="#run">運行</a></nav>"""
     v05 = f"""
 <h2 id="v05">v0.5 改了甚麼</h2>
 <ol>
@@ -978,6 +1019,8 @@ def build(out: Path):
 <li><b>隱含的命題寫到明處。</b>「每法於每門恰取一值」「相應唯在心、心所之間」這類命題，以前由引擎默默施加；現在每一條都是有編號的本體結構條目（如「性・互斥」），推導用到它，就必須寫在「依」裡。現有的推導補上了這些條目。</li>
 <li><b>施設由機器計算。</b>條目不再手標「約定、假定、定理」。哪些是施設、哪些可推出，見〈結構〉一節。</li>
 <li><b>一個庫，兩類論域。</b>法與有情合在一個命題庫裡；一句命題講的是法還是有情，由句中的詞推出。</li>
+<li><b>存在命題逐條考。</b>有界世界只有幾個元素，庫中上百條「有……」不能一起放進去。含存在部分的命題拆成全稱部分與存在部分：全稱部分合考，存在部分逐條與全稱部分合考。</li>
+<li><b>《俱舍萬字》第一遍開始。</b>第一章與第二章第一、二節入庫；九十八隨眠 150 格（十隨眠 × 三界 × 五部）全部判得出，與《萬字》一致。</li>
 <li><b>skill。</b>形式化的流程、讀法凡例、容易出錯的地方，寫在倉庫的 <code>.claude/skills/kosa-formalize/</code> 中，以後每輪工作照它做，也隨時補充。</li>
 </ol>"""
     page = f"""<!DOCTYPE html>
@@ -1002,6 +1045,7 @@ def build(out: Path):
 {v05}
 {section_bank(banks)}
 {section_lib(lib, S, lib_checks)}
+{section_wanzi(lib, S)}
 {section_structure(lib, S)}
 {section_m5(R5, S)}
 {section_m6(R6, S)}

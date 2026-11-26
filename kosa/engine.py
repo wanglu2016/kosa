@@ -328,14 +328,34 @@ class Engine:
         onto = self.m.onto
         return onto.def_closure(listed) | self._structural
 
+    def _symbols(self):
+        if getattr(self, "_syms", None) is None:
+            self._syms = (
+                [(sid, clingo.Function("on", [clingo.Number(i)])) for sid, i in self.c.stmt_index.items()],
+                [(sid, clingo.Function("q", [clingo.Number(i)])) for sid, i in self.c.target_index.items()],
+                [(dn, clingo.Function("od", [clingo.Number(i)])) for dn, i in self.c.def_index.items()],
+            )
+        return self._syms
+
+    def _apply(self, ctl, A):
+        """把外部原子設成 A 所要的真假（只改變了的）。比每次把全部假設傳給 solve 快一倍。
+        A 的次序固定（見 _assumptions），所以按位置比較，不必拿符號做字典鍵（符號的雜湊很慢）。"""
+        states = self.__dict__.setdefault("_ext_state", {})
+        prev = states.get(id(ctl))
+        if prev is None:
+            for sym, val in A:
+                ctl.assign_external(sym, val)
+        else:
+            for (sym, val), old in zip(A, prev):
+                if val is not old:
+                    ctl.assign_external(sym, val)
+        states[id(ctl)] = [v for _, v in A]
+
     def _assumptions(self, ctl, on, target=None, defs_on=None):
-        A = []
-        for sid, i in self.c.stmt_index.items():
-            A.append((clingo.Function("on", [clingo.Number(i)]), sid in on))
-        for sid, i in self.c.target_index.items():
-            A.append((clingo.Function("q", [clingo.Number(i)]), sid == target))
-        for dn, i in self.c.def_index.items():
-            A.append((clingo.Function("od", [clingo.Number(i)]), defs_on is None or dn in defs_on))
+        S_on, S_q, S_od = self._symbols()
+        A = [(sym, sid in on) for sid, sym in S_on]
+        A += [(sym, sid == target) for sid, sym in S_q]
+        A += [(sym, defs_on is None or dn in defs_on) for dn, sym in S_od]
         return A
 
     def sat(self, on, target=None, want_world=False, minimize=True, defs_on=None):
@@ -343,7 +363,8 @@ class Engine:
         defs_on 給定時，只有其中的定義生效（其餘定義項當作未解釋的類）。"""
         self.calls += 1
         if not want_world:
-            res = self._ctl.solve(assumptions=self._assumptions(self._ctl, set(on), target, defs_on))
+            self._apply(self._ctl, self._assumptions(self._ctl, set(on), target, defs_on))
+            res = self._ctl.solve()
             return res.satisfiable, None
         if minimize:
             if self._opt is None:
@@ -353,7 +374,8 @@ class Engine:
         else:
             ctl = self._ctl
         last = None
-        with ctl.solve(assumptions=self._assumptions(ctl, set(on), target, defs_on), yield_=True) as h:
+        self._apply(ctl, self._assumptions(ctl, set(on), target, defs_on))
+        with ctl.solve(yield_=True) as h:
             for mdl in h:
                 last = mdl.symbols(atoms=True)
             sat = h.get().satisfiable
@@ -412,9 +434,9 @@ class Engine:
         return World(ordered, rels)
 
     # ── 極小集枚舉（MARCO）──
-    def marco(self, universe, pred, base=()):
+    def marco(self, universe, pred, base=(), limit=None):
         """枚舉 universe 中使 pred 為真的極小子集（MUS），以及使其為假的極大子集（MSS）。
-        pred 必須單調：子集為真則超集亦真。base 中的命題始終開啟。"""
+        pred 必須單調：子集為真則超集亦真。base 中的命題始終開啟。limit：找到這麼多個極小子集就停。"""
         U = list(universe)
         idx = {s: i for i, s in enumerate(U)}
         blocks = []
@@ -438,6 +460,8 @@ class Engine:
             if pred(set(base) | seed):
                 mus = self._shrink(seed, pred, base)
                 muses.append(mus)
+                if limit and len(muses) >= limit:
+                    break
                 blocks.append(":- " + ", ".join(f"sel({idx[s]})" for s in sorted(mus, key=idx.get)) + ".")
             else:
                 msses.append(seed)
@@ -482,8 +506,8 @@ class Engine:
                 cur = trial
         return set(cur)
 
-    def minimal_premise_sets(self, premises, target, base=()):
-        return self.marco(premises, lambda S: self.entails(S, target, world=False).ok, base)
+    def minimal_premise_sets(self, premises, target, base=(), limit=None):
+        return self.marco(premises, lambda S: self.entails(S, target, world=False).ok, base, limit)
 
     def conflict_sets(self, stmts, base=()):
         return self.marco(stmts, lambda S: not self.consistent(S).ok, base)

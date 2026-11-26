@@ -60,7 +60,7 @@ def nodes(module):
     out = {}
     goal = getattr(module, "goal", None)
     for sid, st in module.statements.items():
-        if st.meta.get("答"):
+        if st.meta.get("答") or st.meta.get("_屬"):
             continue
         if st.meta.get("_結構"):
             out[sid] = Node(sid, "本體", st.text, [], [], st.meta)
@@ -118,6 +118,9 @@ def check_edge(engine, n):
     return EdgeCheck(n.sid, r.ok, unnecessary, r.world, needed)
 
 
+GOAL_LIMIT = 10      # 目標的極小前提集最多列這麼多個（庫大了以後，證明路線可以很多）
+
+
 def verify(engine, goal=None):
     m = engine.m
     N = nodes(m)
@@ -126,8 +129,9 @@ def verify(engine, goal=None):
     for sid, n in N.items():
         if n.kind in ("推導", "目標") and n.deps:
             R.edges[sid] = check_edge(engine, n)
+    U = m.universal_base()
+    R.consistent = engine.consistent(U).ok and all(engine.consistent(U + [e]).ok for e in m.existence_facts())
     base = m.structure_ids() + m.entry_ids()
-    R.consistent = engine.consistent(base).ok
 
     def clos(s):
         if s in R.closure:
@@ -142,7 +146,7 @@ def verify(engine, goal=None):
         leaves = [s for s in base if not N[s].deps]
         R.direct = engine.entails(leaves, goal, world=False).ok
         R.goal_minimal, _ = engine.minimal_premise_sets([s for s in leaves if not N[s].kind == "本體"], goal,
-                                                        base=m.structure_ids())
+                                                        base=m.structure_ids(), limit=GOAL_LIMIT)
     return R
 
 
