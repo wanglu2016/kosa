@@ -8,6 +8,14 @@ description: 在 Kosa（wanglu2016/kosa，說一切有部阿毘達磨形式化�
 這份 skill 是 Kosa 工程的記憶。每次開工先讀完本文件，再按需讀 `references/` 下的文件。
 工作中學到的新東西（新讀法、踩到的坑、改了的約定），當輪就寫回這裡——這是唯一能留到下一個對話的東西。
 
+## 零、開工
+
+1. 取倉庫：add_repo（owner `wanglu2016`，repo `kosa`，access `push`），照工具的提示 clone 並 register_repo_root。
+   《俱舍萬字》原文在 `wanglu2016/abhidharma` 的 `src/wanzi.json`（只讀即可）。
+2. 讀倉庫中的 `.claude/skills/kosa-formalize/` 全部文件（這份 SKILL 的正本與 `references/`）。賬戶裡的這份只有 SKILL.md，參考文件以倉庫為準。
+3. `pip install --break-system-packages clingo fonttools brotli lzstring`，跑一遍 `python3 -m kosa 驗證`，確認起點是綠的。
+4. 看 `references/待辦.md` 的「下一輪從這裡接著做」。
+
 ## 一、目標與分工（作者王路的要求，2026-11）
 
 - **目標**：把有部公認的阿毘達磨命題形式化，建成一個像 Mathlib 那樣的基礎設施。建好之後，任意一條阿毘達磨命題的背景都已在庫中，可以寫成嚴格的命題，交給機器檢驗、交給 AI 證明。
@@ -68,7 +76,7 @@ python3 -m kosa 結構        # 施設（核心附反例）與推出（附極小
 python3 -m kosa 判定 "有 x：貪(x) 且 善(x)"   # 證成／證否／未決
 python3 -m kosa 題庫
 python3 -m kosa lean        # 重新導出 Lean 定義與 Check.lean（改了命題文字後必跑）
-python3 -m kosa 報告        # 約 2 分鐘
+python3 -m kosa 報告        # 約 8 分鐘（前台命令上限 10 分鐘，超時就放到後台並等它結束）
 ```
 
 ## 六、Lean
