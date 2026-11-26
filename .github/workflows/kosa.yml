@@ -30,7 +30,7 @@ jobs:
           python-version: "3.12"
 
       - name: 安裝求解器與字體工具
-        run: pip install clingo fonttools brotli
+        run: pip install clingo fonttools brotli lzstring
 
       - name: 按命題文件重新生成 Lean 定義
         run: python3 -m kosa lean
@@ -45,7 +45,7 @@ jobs:
           use-mathlib-cache: false
           axiom-audit: true
 
-      - name: 頌文核對、前提體系逐條檢驗與題庫
+      - name: 頌文核對、推導檢驗、全庫相容與題庫
         id: verify
         continue-on-error: true
         run: python3 -m kosa 驗證

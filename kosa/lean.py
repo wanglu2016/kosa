@@ -16,13 +16,42 @@ def g(s):
     return f"«{s}»"
 
 
+def statement_sorts(f, acc=None):
+    """公式中各量化變元的論域。"""
+    acc = set() if acc is None else acc
+    k = f[0]
+    if k in ("凡", "有"):
+        acc |= {s for _, s in f[1]}
+        statement_sorts(f[2], acc)
+    elif k in ("且", "或"):
+        for g in f[1]:
+            statement_sorts(g, acc)
+    elif k == "非":
+        statement_sorts(f[1], acc)
+    elif k in ("⇒", "⇔"):
+        statement_sorts(f[1], acc)
+        statement_sorts(f[2], acc)
+    return acc
+
+
 class LeanExport:
-    def __init__(self, module):
+    """導出一個論域（法或有情）的 Lean 定義。跨論域的命題（同時講法與有情）暫不導出。"""
+
+    def __init__(self, module, sort=None):
         self.m = module
         self.onto = module.onto
         self.lex = module.lex
-        self.sort = module.sorts[module.default_sort]
+        self.sort_name = sort or module.default_sort
+        self.sort = module.sorts[self.sort_name]
         self.dims = self.sort.dims
+        self.rels = [r for r in module.rels_used
+                     if module.lex.rel_sorts.get(r, (self.sort_name, self.sort_name)) == (self.sort_name, self.sort_name)]
+
+    def exportable(self, sid):
+        st = self.m.statements[sid]
+        if st.meta.get("_結構"):
+            return False          # 本體結構在 Lean 中由「世界」的定義本身保證（門是函數）
+        return statement_sorts(st.formula) <= {self.sort_name}
 
     def dim_has_dash(self, d):
         return self.onto.dims[d].applies is not None
@@ -38,6 +67,8 @@ class LeanExport:
                 return f"{g(n)} W {x}"
             if info[0] == "謂詞":
                 return f"W.{g(n)} {x}"
+            if info[0] == "類別":
+                return "True"
             raise ValueError(n)
         if k == "且":
             return "(" + " ∧ ".join(self.cls(c, x) for c in ce[1]) + ")"
@@ -94,9 +125,9 @@ class LeanExport:
         for d in self.dims:
             L.append(f"  {g(d)} : E → {g(d + '值')}")
         for pn, pr in self.m.preds.items():
-            if pr.sort == self.m.default_sort:
+            if pr.sort == self.sort_name:
                 L.append(f"  {g(pn)} : E → Prop")
-        for r in self.m.rels_used:
+        for r in self.rels:
             L.append(f"  {g(r)} : E → E → Prop")
         L.append("")
         exported = set()
@@ -125,7 +156,7 @@ class LeanExport:
             for val, vap in dim.value_applies.items():
                 cond = self.cls(parse_class(vap, self.lex), "x")
                 ax.append((f"適用_{val}", f"∀ x : W.E, W.{g(d)} x = .{g(val)} → {cond}"))
-        for r in self.m.rels_used:
+        for r in self.rels:
             rel = self.onto.rels[r]
             a = self.cls(parse_class(rel.sig[0], self.lex), "x")
             b = self.cls(parse_class(rel.sig[1], self.lex), "y")
@@ -152,4 +183,46 @@ class LeanExport:
         return L
 
     def build(self, sids, ns="Kosa"):
+        sids = [s for s in sids if self.exportable(s)]
         return "\n".join(self.header(ns) + self.statements(sids) + [f"end {ns}", ""])
+
+
+def proved_in_lean(proof_dir):
+    """Proof*.lean 中已證的條目：定理名為「«編號成立»」者。回傳 {編號: 文件名}。"""
+    import re
+    out = {}
+    for p in sorted(proof_dir.glob("Proof*.lean")):
+        for m in re.finditer(r"^theorem «(.+?)成立»", p.read_text(encoding="utf-8"), re.M):
+            out[m.group(1)] = p.stem
+    return out
+
+
+def check_file(module, proof_dir, namespaces):
+    """生成 Check.lean：每條寫了「依」又有 Lean 證明的條目，檢驗其 Lean 證明只用「依」所列的條目。
+    （本體定義、本體結構在 Lean 中是內建的，不算在內。）namespaces：論域 → Lean 命名空間。"""
+    from .tree import nodes
+    proved = proved_in_lean(proof_dir)
+    N = nodes(module)
+    imports = sorted(set(proved.values()))
+    L = ["-- 本文件由 Kosa 自動生成（kosa/lean.py），請勿手改。",
+         "-- 每一段 example 檢驗：某條目的 Lean 證明，只用到它的「依」所列的條目。",
+         "-- 若證明用了「依」以外的條目，assumption 找不到它，這裡就會報錯。", ""]
+    L += [f"import Kosa.{p}" for p in imports] + [""]
+    by_ns = {}
+    for sid, n in N.items():
+        if sid not in proved or n.kind == "本體":
+            continue
+        deps = [d for d in n.deps if not module.statements[d].meta.get("_結構")]
+        srt = statement_sorts(module.statements[sid].formula)
+        if len(srt) != 1:
+            continue
+        by_ns.setdefault(namespaces[srt.pop()], []).append((sid, deps))
+    for ns, items in by_ns.items():
+        L += [f"namespace {ns}", ""]
+        for sid, deps in items:
+            hyps = " ".join(f"(h{i} : {g(d)} W)" for i, d in enumerate(deps, 1))
+            L.append(f"example (W : {g('世界')}) (O : {g('本體公理')} W) {hyps} : {g(sid)} W := by")
+            L.append(f"  apply {g(sid + '成立')} W <;> assumption")
+            L.append("")
+        L += [f"end {ns}", ""]
+    return "\n".join(L), proved

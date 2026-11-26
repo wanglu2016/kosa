@@ -67,6 +67,10 @@ class Lexicon:
         self.kind: dict[str, tuple] = {}
         self.alias: dict[str, str] = {}
         self._sorted: list[str] | None = None
+        # 論域資訊：詞（門值、定義、謂詞、類別）→ 所屬論域；門 → 論域；關係 → (第一項論域, 第二項論域)
+        self.sort: dict[str, str] = {}
+        self.dim_sort: dict[str, str] = {}
+        self.rel_sorts: dict[str, tuple] = {}
 
     def add(self, name, info):
         if name in self.kind and self.kind[name] != info:
@@ -171,7 +175,7 @@ class Parser:
             return ("非", self.class_atom())
         tk = self.eat("NAME")
         info = self.lex.kind.get(tk.text)
-        if info is None or info[0] not in ("值", "定義", "謂詞"):
+        if info is None or info[0] not in ("值", "定義", "謂詞", "類別"):
             raise KosaSyntaxError(f"「{tk.text}」不是可作為類的詞（它是{info[0] if info else '未知詞'}）")
         return ("名", tk.text)
 
@@ -295,7 +299,7 @@ class Parser:
             else:
                 raise KosaSyntaxError(f"「{rhs.text}」不是門「{tk.text}」的值")
             return f if op == "＝" else ("非", f)
-        if kind in ("值", "定義", "謂詞"):
+        if kind in ("值", "定義", "謂詞", "類別"):
             return ("屬", ("名", tk.text), args[0])
         raise KosaSyntaxError(f"「{tk.text}」不能這樣用")
 
@@ -304,55 +308,161 @@ def _split_list(s: str) -> list[str]:
     return [p for p in re.split(r"[、，,]", s) if p.strip()]
 
 
-def parse_statement(src: str, lex: Lexicon, default_sort: str):
-    """把一句命題解析為公式。回傳 (公式, 句式名)。"""
+def class_names(ce):
+    k = ce[0]
+    if k == "名":
+        return {ce[1]}
+    if k == "非":
+        return class_names(ce[1])
+    out = set()
+    for c in ce[1]:
+        out |= class_names(c)
+    return out
+
+
+def class_sort(ce, lex: Lexicon, what=""):
+    """類表達式所屬的論域（法、有情……）。不涉及任何有論域的詞時回傳 None。"""
+    sorts = {lex.sort[n] for n in class_names(ce) if n in lex.sort}
+    if len(sorts) > 1:
+        raise KosaSyntaxError(f"{what}混用了不同論域的詞：{'、'.join(sorted(sorts))}")
+    return sorts.pop() if sorts else None
+
+
+def resolve_sorts(f, lex: Lexicon, default: str):
+    """為公式中未標論域的變元推出論域：看它出現在哪些類、關係、門中。推不出的取預設論域。"""
+    def walk(g, scope, acc):
+        k = g[0]
+        if k in ("凡", "有"):
+            inner = dict(scope)
+            for v, srt in g[1]:
+                key = (v, id(g))
+                inner[v] = key
+                acc.setdefault(key, set())
+                if srt:
+                    acc[key].add(srt)
+            walk(g[2], inner, acc)
+        elif k in ("且", "或"):
+            for h in g[1]:
+                walk(h, scope, acc)
+        elif k == "非":
+            walk(g[1], scope, acc)
+        elif k in ("⇒", "⇔"):
+            walk(g[1], scope, acc)
+            walk(g[2], scope, acc)
+        elif k == "屬":
+            srt = class_sort(g[1], lex, "類表達式")
+            if srt and g[2] in scope:
+                acc[scope[g[2]]].add(srt)
+        elif k == "係":
+            sig = lex.rel_sorts.get(g[1])
+            if sig:
+                for v, srt in zip(g[2], sig):
+                    if v in scope and srt:
+                        acc[scope[v]].add(srt)
+        elif k == "同門":
+            srt = lex.dim_sort.get(g[1])
+            for v in (g[2], g[3]):
+                if v in scope and srt:
+                    acc[scope[v]].add(srt)
+
+    acc = {}
+    walk(f, {}, acc)
+    for key, ss in acc.items():
+        if len(ss) > 1:
+            raise KosaSyntaxError(f"變元「{key[0]}」同時被當作{'、'.join(sorted(ss))}")
+
+    def rebuild(g):
+        k = g[0]
+        if k in ("凡", "有"):
+            vs = []
+            for v, srt in g[1]:
+                ss = acc.get((v, id(g)), set())
+                vs.append((v, srt or (next(iter(ss)) if ss else default)))
+            return (k, vs, rebuild(g[2]))
+        if k in ("且", "或"):
+            return (k, [rebuild(h) for h in g[1]])
+        if k == "非":
+            return (k, rebuild(g[1]))
+        if k in ("⇒", "⇔"):
+            return (k, rebuild(g[1]), rebuild(g[2]))
+        return g
+    return rebuild(f)
+
+
+def parse_statement(src: str, lex: Lexicon, default_sort: str, infer: bool = True):
+    """把一句命題解析為公式。回傳 (公式, 句式名)。
+    infer 時，變元的論域（法、有情）由句中的詞推出，推不出時取 default_sort；
+    否則（舊模組，如積類別）一律取 default_sort。"""
     s = normalize(src.strip()).rstrip("。")
     head = s.lstrip()[:1]
-    if head in ("凡", "有") and len(s) > 1 and (s[1].isspace() or re.match(r"[a-zA-Z]", s[1])):
+
+    def as_formula():
         toks = tokenize(s, lex)
-        p = Parser(toks, lex, default_sort)
+        p = Parser(toks, lex, None if infer else default_sort)
         f = p.formula()
         if p.peek() is not None:
             raise KosaSyntaxError(f"多餘的內容：「{p.peek().text}」")
-        return f, "公式"
+        return resolve_sorts(f, lex, default_sort) if infer else f
+
+    if head in ("凡", "有") and len(s) > 1 and (s[1].isspace() or re.match(r"[a-zA-Z]", s[1])):
+        return as_formula(), "公式"
+
+    def srt(*ces):
+        if not infer:
+            return default_sort
+        found = {class_sort(c, lex, "這句命題") for c in ces} - {None}
+        if len(found) > 1:
+            raise KosaSyntaxError(f"這句命題混用了不同論域的詞：{'、'.join(sorted(found))}")
+        return found.pop() if found else default_sort
+
     parts = s.split()
+    x = "x"
     if len(parts) == 1 and "：" in s:
         a, b = s.split("：", 1)
         A = _class(a, lex, default_sort)
-        Bs = [_class(x, lex, default_sort) for x in _split_list(b)]
-        x = "x"
+        Bs = [_class(y, lex, default_sort) for y in _split_list(b)]
+        d = srt(A, *Bs)
         rhs = Bs[0] if len(Bs) == 1 else ("或", Bs)
-        return ("凡", [(x, default_sort)], ("⇔", ("屬", A, x), ("屬", rhs, x))), "列舉"
+        return ("凡", [(x, d)], ("⇔", ("屬", A, x), ("屬", rhs, x))), "列舉"
     if len(parts) == 2 and parts[1] in ("無", "容有"):
         A = _class(parts[0], lex, default_sort)
+        d = srt(A)
         if parts[1] == "無":
-            return ("非", ("有", [("x", default_sort)], ("屬", A, "x"))), "無"
-        return ("有", [("x", default_sort)], ("屬", A, "x")), "容有"
+            return ("非", ("有", [(x, d)], ("屬", A, x))), "無"
+        return ("有", [(x, d)], ("屬", A, x)), "容有"
+    if len(parts) == 2 and parts[1] == "互斥":
+        Cs = [_class(y, lex, default_sort) for y in _split_list(parts[0])]
+        if len(Cs) < 2:
+            raise KosaSyntaxError("「互斥」前至少要列兩類")
+        d = srt(*Cs)
+        pairs = [("非", ("屬", ("且", [Cs[i], Cs[j]]), x))
+                 for i in range(len(Cs)) for j in range(i + 1, len(Cs))]
+        body = pairs[0] if len(pairs) == 1 else ("且", pairs)
+        return ("凡", [(x, d)], body), "互斥"
     if len(parts) == 3 and parts[1] in SENT_OPS:
         op = parts[1]
         A = _class(parts[0], lex, default_sort)
-        x = "x"
         if op == "通":
             Bs = [_class(b, lex, default_sort) for b in _split_list(parts[2])]
-            uni = ("凡", [(x, default_sort)], ("⇒", ("屬", A, x), ("屬", ("或", Bs) if len(Bs) > 1 else Bs[0], x)))
-            exs = [("有", [(x, default_sort)], ("屬", ("且", [A, B]), x)) for B in Bs]
+            d = srt(A, *Bs)
+            uni = ("凡", [(x, d)], ("⇒", ("屬", A, x), ("屬", ("或", Bs) if len(Bs) > 1 else Bs[0], x)))
+            exs = [("有", [(x, d)], ("屬", ("且", [A, B]), x)) for B in Bs]
             return ("且", [uni] + exs), "通"
         B = _class(parts[2], lex, default_sort)
+        d = srt(A, B)
         if op in ("唯", "皆", "是", "定"):
-            return ("凡", [(x, default_sort)], ("⇒", ("屬", A, x), ("屬", B, x))), "唯"
+            return ("凡", [(x, d)], ("⇒", ("屬", A, x), ("屬", B, x))), "唯"
         if op in ("非", "不容"):
-            return ("凡", [(x, default_sort)], ("⇒", ("屬", A, x), ("非", ("屬", B, x)))), "非"
+            return ("凡", [(x, d)], ("⇒", ("屬", A, x), ("非", ("屬", B, x)))), "非"
         if op == "即":
-            return ("凡", [(x, default_sort)], ("⇔", ("屬", A, x), ("屬", B, x))), "即"
+            return ("凡", [(x, d)], ("⇔", ("屬", A, x), ("屬", B, x))), "即"
         if op == "容":
-            return ("有", [(x, default_sort)], ("屬", ("且", [A, B]), x)), "容"
+            return ("有", [(x, d)], ("屬", ("且", [A, B]), x)), "容"
     # 退而求其次：當作公式解析
-    toks = tokenize(s, lex)
-    p = Parser(toks, lex, default_sort)
-    f = p.formula()
-    if p.peek() is not None:
-        raise KosaSyntaxError(f"無法識別的句式：「{src}」")
-    return f, "公式"
+    try:
+        return as_formula(), "公式"
+    except KosaSyntaxError:
+        raise KosaSyntaxError(f"無法識別的句式：「{src}」") from None
 
 
 def _class(s: str, lex: Lexicon, ds: str):
@@ -409,6 +519,8 @@ def show(f, top=True) -> str:
         return f"{f[1]}＝{f[2]}"
     if k == "真":
         return "真"
+    if k == "結構":
+        return f[3]
     raise ValueError(f)
 
 
@@ -441,4 +553,4 @@ def free_vars(f, bound=frozenset()):
         return {f[2], f[3]} - bound
     if k == "同":
         return {f[1], f[2]} - bound
-    return set()
+    return set()   # 真、結構：無自由變元

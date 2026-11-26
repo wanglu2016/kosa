@@ -7,3 +7,5 @@ __pycache__/
 報告/
 # 判定命令的臨時文件
 .判定.kosa
+.命題庫.kosa
+.lib.kosa

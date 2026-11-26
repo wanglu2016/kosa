@@ -49,6 +49,8 @@ class Compiler:
     def comp_class(self, ce, x, env):
         k = ce[0]
         if k == "名":
+            if ce[1] in self.sort_index:          # 類別名作類：該論域的一切元素
+                return f"d{self.sort_index[ce[1]]}(V{x})"
             return f"is(V{x},{q(ce[1])})"
         p = self.new("c")
         d = self.dom(x, env)
@@ -76,6 +78,9 @@ class Compiler:
         if k == "同門":
             w = f"W{self.n}"
             self.rules.append(f"{head} :- {', '.join(doms)}, v(V{f[2]},{q(f[1])},{w}), v(V{f[3]},{q(f[1])},{w}).")
+            if self.m.explicit:
+                # 兩者於此門都無值（不適用），亦算相同——與 Lean 中「—」＝「—」一致
+                self.rules.append(f"{head} :- {', '.join(doms)}, not hv(V{f[2]},{q(f[1])}), not hv(V{f[3]},{q(f[1])}).")
         elif k == "同":
             if f[1] == f[2]:
                 self.rules.append(f"{head} :- {', '.join(doms)}.")
@@ -83,6 +88,8 @@ class Compiler:
                 self.rules.append(f"{head} :- {', '.join(doms)}, V{f[1]} == V{f[2]}.")
         elif k == "真":
             self.rules.append(f"{head}.")
+        elif k == "結構":
+            return self.comp_structure(f)
         elif k == "非":
             a = self.comp(f[1], env)
             self.rules.append(f"{head} :- {', '.join(doms + ['not ' + a])}.")
@@ -110,7 +117,97 @@ class Compiler:
             raise ValueError(f)
         return head
 
+    def comp_structure(self, f):
+        """本體結構條目（門的互斥、窮盡、適用；關係的類型、對稱、傳遞）：回傳「此條成立」的原子。"""
+        _, kind, name, _ = f
+        R, onto = self.rules, self.onto
+        p = self.new("st")
+        bad = p + "_bad"
+        if kind in ("互斥", "窮盡", "適用"):
+            d = onto.dims[name]
+            j = self.sort_index[d.sort]
+            app = None
+            if d.applies:
+                app = self.comp_class(parse_class(d.applies, self.lex), "e", {"e": d.sort})
+            if kind == "互斥":
+                R.append(f"{bad} :- v(Ve,{q(name)},V1), v(Ve,{q(name)},V2), V1 < V2.")
+            elif kind == "窮盡":
+                R.append(f"{bad} :- d{j}(Ve), {app + ', ' if app else ''}not hv(Ve,{q(name)}).")
+            else:
+                R.append(f"{bad} :- d{j}(Ve), hv(Ve,{q(name)}), not {app}.")
+        elif kind == "值適用":
+            dn, val = name
+            d = onto.dims[dn]
+            j = self.sort_index[d.sort]
+            app = self.comp_class(parse_class(d.value_applies[val], self.lex), "e", {"e": d.sort})
+            R.append(f"{bad} :- d{j}(Ve), v(Ve,{q(dn)},{q(val)}), not {app}.")
+        else:
+            r = onto.rels[name]
+            s1, s2 = self.lex.rel_sorts[name]
+            if kind == "類型":
+                a1 = self.comp_class(parse_class(r.sig[0], self.lex), "x", {"x": s1})
+                a2 = self.comp_class(parse_class(r.sig[1], self.lex), "y", {"y": s2})
+                R.append(f"{bad} :- r({q(name)},Vx,Vy), not {a1}.")
+                R.append(f"{bad} :- r({q(name)},Vx,Vy), not {a2}.")
+                R.append(f"{bad} :- r({q(name)},Vx,Vx).")
+            elif kind == "對稱":
+                R.append(f"{bad} :- r({q(name)},X,Y), not r({q(name)},Y,X).")
+            elif kind == "傳遞":
+                R.append(f"{bad} :- r({q(name)},X,Y), r({q(name)},Y,Z), X != Z, not r({q(name)},X,Z).")
+        R.append(f"{p} :- not {bad}.")
+        return p
+
+    def world_explicit(self):
+        """庫模式的世界：門值、關係都自由選取，結構約束由各結構條目（可開關）施加。"""
+        m, onto, R = self.m, self.onto, self.rules
+        for name, s in m.sorts.items():
+            j = self.sort_index[name]
+            if s.kind != "開放":
+                raise ValueError("庫模式只支持開放類別")
+            for i in range(1, s.size + 1):
+                R.append(f"slot({j},e({j},{i})).")
+            R.append(f"{{ act(E) }} :- slot({j},E).")
+            R.append(f"d{j}(E) :- act(E), slot({j},E).")
+            R.append(f":- slot({j},e({j},I)), I > 1, act(e({j},I)), not act(e({j},I-1)).")
+            R.append(f"ent(E) :- d{j}(E).")
+            for dn in s.dims:
+                d = onto.dims[dn]
+                for v in d.values:
+                    R.append(f"val({q(dn)},{q(v)}).")
+                R.append(f"{{ v(E,{q(dn)},V) : val({q(dn)},V) }} :- d{j}(E).")
+                R.append(f"hv(E,{q(dn)}) :- v(E,{q(dn)},_).")
+        R.append("is(E,V) :- v(E,D,V).")
+        self._defs()
+        self._preds()
+        for rn in m.rels_used:
+            s1, s2 = self.lex.rel_sorts[rn]
+            R.append(f"{{ r({q(rn)},X,Y) }} :- d{self.sort_index[s1]}(X), d{self.sort_index[s2]}(Y).")
+
+    def _defs(self):
+        R = self.rules
+        self.def_index = {}
+        for k, (dn, text) in enumerate(self.onto.defs.items()):
+            self.def_index[dn] = k
+            ce = parse_class(text, self.lex)
+            srt = self.lex.sort.get(dn)
+            a = self.comp_class(ce, "e", {"e": srt if (self.m.explicit and srt in self.sort_index) else "*"})
+            R.append(f"#external od({k}).")
+            R.append(f"is(Ve,{q(dn)}) :- ent(Ve), {a}, od({k}).")
+            R.append(f"{{ is(Ve,{q(dn)}) }} :- ent(Ve), not od({k}).")
+
+    def _preds(self):
+        R, m = self.rules, self.m
+        for pn, p in m.preds.items():
+            j = self.sort_index[p.sort]
+            if p.kind == "待定":
+                R.append(f"{{ is(E,{q(pn)}) }} :- d{j}(E).")
+            else:
+                for el in p.extension:
+                    R.append(f"is(e({j},{q(el)}),{q(pn)}).")
+
     def world(self):
+        if self.m.explicit:
+            return self.world_explicit()
         m, onto, R = self.m, self.onto, self.rules
         for name, s in m.sorts.items():
             j = self.sort_index[name]
@@ -149,21 +246,8 @@ class Compiler:
         # 定義是本體約定。每個定義有一個開關 od(k)：開著時，定義項恰等於定義式；
         # 關著時，定義項成為一個未解釋的類（可真可假）。前提樹檢驗時，只開「依」中列出的定義，
         # 這樣每一步用到的約定都必須寫出來。
-        self.def_index = {}
-        for k, (dn, text) in enumerate(onto.defs.items()):
-            self.def_index[dn] = k
-            ce = parse_class(text, self.lex)
-            a = self.comp_class(ce, "e", {"e": "*"})
-            R.append(f"#external od({k}).")
-            R.append(f"is(Ve,{q(dn)}) :- ent(Ve), {a}, od({k}).")
-            R.append(f"{{ is(Ve,{q(dn)}) }} :- ent(Ve), not od({k}).")
-        for pn, p in m.preds.items():
-            j = self.sort_index[p.sort]
-            if p.kind == "待定":
-                R.append(f"{{ is(E,{q(pn)}) }} :- d{j}(E).")
-            else:
-                for el in p.extension:
-                    R.append(f"is(e({j},{q(el)}),{q(pn)}).")
+        self._defs()
+        self._preds()
         for rn in m.rels_used:
             r = onto.rels[rn]
             ds = self.sort_index[m.default_sort]
@@ -297,11 +381,18 @@ class Engine:
                 key = str(s.arguments[0])
                 j = s.arguments[0].arguments[0].number
                 ents.setdefault(key, Ent(key, inv[j], {}, set()))
+        for e in ents.values():
+            e.attrs["_論域"] = e.sort
         for s in symbols:
             if s.name == "v":
                 key = str(s.arguments[0])
                 if key in ents:
-                    ents[key].attrs[s.arguments[1].string] = s.arguments[2].string
+                    dn, val = s.arguments[1].string, s.arguments[2].string
+                    old = ents[key].attrs.get(dn)
+                    if old is None or old == "—":
+                        ents[key].attrs[dn] = val
+                    elif val != "—":       # 互斥關掉時，一門可取多值
+                        ents[key].attrs[dn] = tuple(sorted(set((old if isinstance(old, tuple) else (old,)) + (val,))))
             elif s.name == "is":
                 key = str(s.arguments[0])
                 p = s.arguments[1].string
@@ -358,6 +449,30 @@ class Engine:
         muses = [sorted(x, key=order.get) for x in muses]
         msses = [sorted(x, key=order.get) for x in msses]
         return muses, msses
+
+    @staticmethod
+    def minimize(items, pred):
+        """在 items 中取一個極小子集 S，使 pred(S) 為真（pred 須單調：子集真則超集亦真）。
+        用 QuickXplain 式的二分：極小集小時，呼叫次數約為 k·log(n/k)，遠少於逐條試刪。"""
+        items = list(items)
+        if not pred(items):
+            raise ValueError("全集不滿足條件，無極小子集")
+
+        def rec(background, cands, has_delta):
+            if has_delta and pred(background):
+                return []
+            if len(cands) == 1:
+                return list(cands)
+            half = len(cands) // 2
+            a, b = cands[:half], cands[half:]
+            sb = rec(background + a, b, True)
+            sa = rec(background + sb, a, bool(sb))
+            return sa + sb
+        if pred([]):
+            return []
+        out = rec([], items, False)
+        order = {x: i for i, x in enumerate(items)}
+        return sorted(out, key=order.get)
 
     def _shrink(self, S, pred, base):
         cur = list(S)

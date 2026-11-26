@@ -22,9 +22,11 @@ def ent_desc(e, module):
             parts.append("・".join(sorted(e.preds, key=lambda p: list(module.preds).index(p))))
         return parts
     vals = []
-    for d in ORDER + [k for k in e.attrs if k not in ORDER]:
+    for d in ORDER + [k for k in e.attrs if k not in ORDER and not k.startswith("_")]:
         v = e.attrs.get(d)
-        if v and v != "—":
+        if isinstance(v, tuple):
+            vals.append("／".join(v) + f"（{d}兼取）")
+        elif v and v != "—":
             vals.append(v)
     for p in module.preds:
         if p in e.preds:
