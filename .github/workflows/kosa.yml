@@ -45,7 +45,7 @@ jobs:
           use-mathlib-cache: false
           axiom-audit: true
 
-      - name: 頌文核對與前提體系逐條檢驗
+      - name: 頌文核對、前提體系逐條檢驗與題庫
         id: verify
         continue-on-error: true
         run: python3 -m kosa 驗證
@@ -61,7 +61,7 @@ jobs:
         if: steps.lean.outcome == 'failure' || steps.verify.outcome == 'failure'
         run: |
           echo "Lean 證明檢查：${{ steps.lean.outcome }}"
-          echo "頌文核對與前提體系檢驗：${{ steps.verify.outcome }}"
+          echo "頌文核對、前提體系檢驗與題庫：${{ steps.verify.outcome }}"
           echo "有不通過之處。報告已照常生成並發佈，請到網頁上查看。"
           exit 1
 

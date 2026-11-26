@@ -20,6 +20,11 @@ def read_blocks(path: Path):
             if cur is None:
                 raise KosaSyntaxError(f"{path}:{no} 縮進行之前沒有條目")
             line = raw.strip()
+            # 縮進兩格以上：上一欄的續行（即使行中有「：」也不另起一欄）
+            if raw.startswith("　　") and cur[1].get("_order"):
+                last = cur[1]["_order"][-1]
+                cur[1][last] += "\n" + line
+                continue
             if "：" in line:
                 k, v = line.split("：", 1)
                 k = k.strip()
@@ -203,18 +208,60 @@ class Module:
     lex: Lexicon | None = None
 
     @classmethod
-    def load(cls, path: Path, onto: Ontology):
+    def load(cls, path: Path, onto: Ontology, extra_files=()):
+        """讀一個模組文件。文件中「引 庫/某」一行把命題庫的那一部分併入本模組；
+        「目標 某」指定前提體系的目標。extra_files 是另外要併入的文件（如題庫）。"""
         m = cls(path=path, onto=onto)
         lex = onto.lexicon()
         m.lex = lex
+        m.goal = None
+        m.side = []
+        m.libraries = []
+        m.auto_dims = False
         pending = []
+        m._read(path, pending)
+        for f in extra_files:
+            m._read(Path(f), pending)
+        # 積類別：生成元素
+        for s in m.sorts.values():
+            if s.kind == "積":
+                s.elements = m._product(s)
+        for sid, text, kv, no, src in pending:
+            sort = kv.get("_論域") or m.default_sort
+            try:
+                f, form = parse_statement(text, lex, sort)
+            except KosaSyntaxError as e:
+                raise KosaSyntaxError(f"{src}:{no}【{sid}】{e}") from None
+            if sid in m.statements:
+                raise KosaSyntaxError(f"{src}:{no} 編號重複：{sid}")
+            m.statements[sid] = Statement(sid, text, f, form, kv, no)
+        if m.auto_dims:
+            m._auto_dims()
+        m._check_dims()
+        return m
+
+    def _read(self, path: Path, pending, lib_meta=None):
+        m, lex = self, self.lex
         for head, kv, no in read_blocks(path):
-            if head.startswith("模組"):
+            if head.startswith("模組") or head.startswith("題庫"):
                 m.title = head[2:].strip()
                 m.notes = kv
+            elif head.startswith("次序："):
+                pass
+            elif head.startswith("論域"):
+                if lib_meta is None:
+                    raise KosaSyntaxError(f"{path.name}:{no} 「論域」只能出現在命題庫中")
+            elif head.startswith("引 ") or head.startswith("引　"):
+                self._import(head[1:].strip(), pending)
+            elif head.startswith("目標 "):
+                m.goal = head[2:].strip()
+            elif head.startswith("旁證 "):
+                m.side += split_names(head[2:].strip())
             elif head.startswith("類 "):
                 mm = re.match(r"類\s+(\S+?)：(.+)$", head)
                 name, rest = mm.group(1), mm.group(2).strip()
+                if name in m.sorts:
+                    continue
                 lex.add(name, ("類別",))
                 if rest.startswith("開放"):
                     m.sorts[name] = Sort(name, "開放", size=int(re.search(r"\d+", rest).group(0)))
@@ -240,6 +287,8 @@ class Module:
             elif head.startswith("謂詞 "):
                 mm = re.match(r"謂詞\s+(\S+?)〔(.+?)〕：(.+)$", head)
                 name, sort, rest = mm.group(1), mm.group(2), mm.group(3).strip()
+                if name in m.preds:
+                    continue
                 lex.add(name, ("謂詞", sort))
                 if rest == "待定":
                     m.preds[name] = Pred(name, sort, "待定", notes=kv)
@@ -252,23 +301,80 @@ class Module:
                 m.closure = split_names(head[2:])
             elif head.startswith("【"):
                 mm = re.match(r"【(.+?)】(.+)$", head)
-                pending.append((mm.group(1), mm.group(2).strip(), kv, no))
+                meta = dict(kv)
+                if lib_meta:
+                    meta.update(lib_meta)
+                pending.append((mm.group(1), mm.group(2).strip(), meta, no, path.name))
             else:
                 raise KosaSyntaxError(f"{path.name}:{no} 無法識別：{head}")
-        # 積類別：生成元素
-        for s in m.sorts.values():
-            if s.kind == "積":
-                s.elements = m._product(s)
-        for sid, text, kv, no in pending:
-            try:
-                f, form = parse_statement(text, lex, m.default_sort)
-            except KosaSyntaxError as e:
-                raise KosaSyntaxError(f"{path.name}:{no}【{sid}】{e}") from None
-            if sid in m.statements:
-                raise KosaSyntaxError(f"{path.name}:{no} 編號重複：{sid}")
-            m.statements[sid] = Statement(sid, text, f, form, kv, no)
-        m._check_dims()
-        return m
+
+    def _import(self, rel, pending):
+        """併入命題庫的一部分：先讀「論域.kosa」（類別、謂詞），再按其中「次序」讀各品。"""
+        root = Path(__file__).resolve().parent.parent / rel
+        if not root.is_dir():
+            raise KosaSyntaxError(f"沒有命題庫「{rel}」")
+        self.libraries.append(rel)
+        self.auto_dims = True
+        head_file = root / "論域.kosa"
+        order = []
+        sort = None
+        for head, kv, no in read_blocks(head_file):
+            if head.startswith("論域"):
+                sort = head[2:].strip()
+            if head.startswith("次序："):
+                order = split_names(head.split("：", 1)[1])
+        self._read(head_file, pending, lib_meta={})
+        if sort:
+            self.default_sort = sort
+        files = [root / f"{n}.kosa" for n in order] + sorted(
+            f for f in root.glob("*.kosa") if f.stem not in order and f.name != "論域.kosa")
+        for f in files:
+            if f.exists():
+                self._read(f, pending, lib_meta={"品": f.stem, "_論域": sort or self.default_sort, "_庫": rel})
+
+    def _auto_dims(self):
+        """自動推算預設類別要用的門與關係：命題、定義、關係類型、適用條件所涉及的門，取其閉包。"""
+        onto = self.onto
+        s = self.sorts[self.default_sort]
+        need = set(s.dims)
+        rels = set(self.rels_used)
+        for st in self.statements.values():
+            need |= self.formula_dims(st.formula)
+            rels |= self._formula_rels(st.formula)
+        for rn in rels:
+            if rn in onto.rels:
+                r = onto.rels[rn]
+                need |= self.class_dims(parse_class(r.sig[0], self.lex)) | self.class_dims(parse_class(r.sig[1], self.lex))
+        changed = True
+        while changed:
+            changed = False
+            for dn in list(need):
+                d = onto.dims[dn]
+                for ap in [d.applies] + list(d.value_applies.values()):
+                    if ap:
+                        extra = self.class_dims(parse_class(ap, self.lex)) - need
+                        if extra:
+                            need |= extra
+                            changed = True
+        s.dims = [d for d in onto.dims if d in need]
+        self.rels_used = [r for r in onto.rels if r in rels]
+
+    def _formula_rels(self, f):
+        k = f[0]
+        if k == "係":
+            return {f[1]} if f[1] in self.onto.rels else set()
+        if k in ("凡", "有"):
+            return self._formula_rels(f[2])
+        if k in ("且", "或"):
+            out = set()
+            for g in f[1]:
+                out |= self._formula_rels(g)
+            return out
+        if k == "非":
+            return self._formula_rels(f[1])
+        if k in ("⇒", "⇔"):
+            return self._formula_rels(f[1]) | self._formula_rels(f[2])
+        return set()
 
     def _product(self, s: Sort):
         """積類別的元素。因子可以是一門（取其全部值），也可以是一個定義——

@@ -73,7 +73,11 @@ class TreeReport:
     goal: str = "目標"
 
 
-def goal_of(N):
+def goal_of(N, module=None):
+    if module is not None and getattr(module, "goal", None):
+        if module.goal not in N:
+            raise ValueError(f"目標【{module.goal}】不存在")
+        return module.goal
     gs = [s for s, n in N.items() if n.layer == "目標"]
     if len(gs) != 1:
         raise ValueError(f"前提體系應恰有一個目標，見到 {gs}")
@@ -83,7 +87,7 @@ def goal_of(N):
 def verify(engine, goal=None):
     m = engine.m
     N = nodes(m)
-    goal = goal or goal_of(N)
+    goal = goal or goal_of(N, m)
     R = TreeReport(N)
     R.goal = goal
     base = [s for s, n in N.items() if n.layer in ("約定", "假定")]

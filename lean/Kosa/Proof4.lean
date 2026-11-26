@@ -1,4 +1,4 @@
-import Kosa.Module4
+import Kosa.Proof5
 
 /-!
 # 模組四的證明：前提體系的每一條定理
@@ -10,7 +10,7 @@ import Kosa.Module4
     theorem 名稱 (前提一) (前提二) … : 結論 := by
       證明步驟
 
-* 括號裡的是**前提**。例如 `(a1 : «假一» W)` 讀作「設假一在世界 W 中成立，記作 a1」。
+* 括號裡的是**前提**。例如 `(a1 : «業假一» W)` 讀作「設業假一在世界 W 中成立，記作 a1」。
   每條定理的前提，恰好就是命題文件裡這條定理的「依」。
 * 冒號後面是**結論**。
 * `by` 之後是**證明步驟**。Lean 逐步檢查，每一步都必須由前面已有的東西嚴格推出；
@@ -33,7 +33,7 @@ import Kosa.Module4
 `W.«性» x = .«有覆無記»` 讀作「x 的性是有覆無記」。
 -/
 
-namespace Kosa.M4
+namespace Kosa.Lib
 
 /-! ## 小引理：來自本體的適用條件 -/
 
@@ -58,8 +58,8 @@ theorem «五見是惑» (W : «世界») (x : W.E) (h : «五見» W x) : «惑
   Or.inr (Or.inr (Or.inr (Or.inr (Or.inr h))))
 
 /-- 有伺、有漏的心，唯在欲界或初靜慮：
-    有漏則非不繫（約一）；有伺則非二定以上（假十）。 -/
-theorem «有伺有漏心唯欲界或初靜慮» (W : «世界») (k1 : «約一» W) (a10 : «假十» W)
+    有漏則非不繫（界約一）；有伺則非二定以上（界假六）。 -/
+theorem «有伺有漏心唯欲界或初靜慮» (W : «世界») (k1 : «界約一» W) (a10 : «界假六» W)
     (c : W.E) (hXin : W.«法類» c = .«心») (hSi : W.«有伺無伺» c = .«有伺»)
     (hLou : W.«有漏無漏» c = .«有漏») :
     W.«繫不繫» c = .«欲界繫» ∨ W.«繫不繫» c = .«初靜慮繫» := by
@@ -83,19 +83,19 @@ theorem «有伺有漏心唯欲界或初靜慮» (W : «世界») (k1 : «約一
 
 /-! ## 定理 -/
 
-/-- 【定一】色之善、染，唯由等起而成。依：假一、假二、假三。 -/
-theorem «定一成立» (W : «世界») (O : «本體公理» W)
-    (a1 : «假一» W) (a2 : «假二» W) (a3 : «假三» W) : «定一» W := by
+/-- 【業定一】色之善、染，唯由等起而成。依：業假一、業假二、業假三。 -/
+theorem «業定一成立» (W : «世界») (O : «本體公理» W)
+    (a1 : «業假一» W) (a2 : «業假二» W) (a3 : «業假三» W) : «業定一» W := by
   intro x ⟨hSe, hNotWufu⟩            -- 設 x 是色，且不是無覆無記
   cases h : W.«性由» x with           -- 它的善染由何而成？逐一看
   | «等起成» => rfl                   -- 等起成：正是要證的
-  | «勝義成» =>                       -- 勝義成：色非勝義（假一）
+  | «勝義成» =>                       -- 勝義成：色非勝義（業假一）
       exact absurd h (a1 x (Or.inr (Or.inr hSe)))
-  | «自性成» =>                       -- 自性成：唯心所（假二），而 x 是色
+  | «自性成» =>                       -- 自性成：唯心所（業假二），而 x 是色
       have h2 := a2 x h
       rw [hSe] at h2
       cases h2
-  | «相應成» =>                       -- 相應成：唯心心所（假三），而 x 是色
+  | «相應成» =>                       -- 相應成：唯心心所（業假三），而 x 是色
       have h3 := a3 x h
       unfold «心心所» at h3
       rw [hSe] at h3
@@ -103,43 +103,43 @@ theorem «定一成立» (W : «世界») (O : «本體公理» W)
   | «—» =>                            -- 無此門：只有無覆無記才無此門，而 x 不是
       exact absurd hNotWufu ((O.«適用_性由» x).1 h)
 
-/-- 【定二】善、染之色唯是業。依：定一、假四。 -/
-theorem «定二成立» (W : «世界») (d1 : «定一» W) (a4 : «假四» W) : «定二» W := by
+/-- 【業定二】善、染之色唯是業。依：業定一、業假四。 -/
+theorem «業定二成立» (W : «世界») (d1 : «業定一» W) (a4 : «業假四» W) : «業定二» W := by
   intro x ⟨hSe, hNot⟩
   exact a4 x ⟨d1 x ⟨hSe, hNot⟩, hSe⟩   -- 等起所成之色是業
 
-/-- 【定三】有覆無記色唯是表色。依：定二、假五。 -/
-theorem «定三成立» (W : «世界») (d2 : «定二» W) (a5 : «假五» W) : «定三» W := by
+/-- 【業定三】有覆無記色唯是表色。依：業定二、業假五。 -/
+theorem «業定三成立» (W : «世界») (d2 : «業定二» W) (a5 : «業假五» W) : «業定三» W := by
   intro x ⟨hXing, hSe⟩
-  have hYe : «業» W x := d2 x ⟨hSe, by rw [hXing]; decide⟩   -- 它是業：表或無表
+  have hYe : «色業» W x := d2 x ⟨hSe, by rw [hXing]; decide⟩   -- 它是業：表或無表
   rcases hYe with h | h
   · exact h                                                -- 是表：成立
-  · have hJi := a5 x h                                     -- 是無表：則有記（假五）
+  · have hJi := a5 x h                                     -- 是無表：則有記（業假五）
     unfold «有記» at hJi
     rw [hXing] at hJi                                      -- 但它是有覆無記
     rcases hJi with h' | h' <;> cases h'                   -- 相違
 
-/-- 【定四】五見唯見所斷。依：假十六、假十七。 -/
-theorem «定四成立» (W : «世界»)
-    (a16 : «假十六» W) (a17 : «假十七» W) : «定四» W := by
+/-- 【眠定一】五見唯見所斷。依：眠假二、眠假三。 -/
+theorem «眠定一成立» (W : «世界»)
+    (a16 : «眠假二» W) (a17 : «眠假三» W) : «眠定一» W := by
   intro x h5
   have hHuo := «五見是惑» W x h5               -- 五見是惑（定義）
   rcases a16 x hHuo with hJian | hXiu        -- 隨眠皆所斷：見所斷或修所斷
   · exact hJian
   · exact absurd (Or.inl h5) (a17 x ⟨hXiu, hHuo⟩)   -- 修所斷離見：相違
 
-/-- 【定五】欲界有覆無記心唯見所斷。依：假十二、十三、十四、十五、定四、假十八。 -/
-theorem «定五成立» (W : «世界») (O : «本體公理» W)
-    (a12 : «假十二» W) (a13 : «假十三» W) (a14 : «假十四» W) (a15 : «假十五» W)
-    (d4 : «定四» W) (a18 : «假十八» W) : «定五» W := by
+/-- 【眠定二】欲界有覆無記心唯見所斷。依：根假一、十三、十四、十五、眠定一、眠假四。 -/
+theorem «眠定二成立» (W : «世界») (O : «本體公理» W)
+    (a12 : «根假一» W) (a13 : «根定二» W) (a14 : «根假二» W) (a15 : «眠假一» W)
+    (d4 : «眠定一» W) (a18 : «眠假四» W) : «眠定二» W := by
   intro c ⟨hYu, hXing, hXin⟩
-  -- 染心必與癡相應（假十二）
+  -- 染心必與癡相應（根假一）
   obtain ⟨y, hyChi, hcy⟩ := a12 c ⟨hXin, Or.inr hXing⟩
-  -- 此癡與心同性、同地（假十三、十四）
+  -- 此癡與心同性、同地（根定二、十四）
   have hyXing : W.«性» y = .«有覆無記» := by rw [← a13 c y hcy]; exact hXing
   have hyYu : W.«繫不繫» y = .«欲界繫» := by rw [← a14 c y hcy]; exact hYu
   have hyHuo : «惑» W y := by unfold «惑»; simp [hyChi]   -- 癡是惑（定義）
-  -- 欲界有覆無記隨眠，唯身見、邊見及彼俱癡（假十五）
+  -- 欲界有覆無記隨眠，唯身見、邊見及彼俱癡（眠假一）
   rcases a15 y ⟨hyHuo, hyYu, hyXing⟩ with h | h | ⟨_, z, hyz, hz⟩
   · rw [«癡無見種» W O y hyChi] at h; cases h   -- 它是癡，不是身見
   · rw [«癡無見種» W O y hyChi] at h; cases h   -- 它是癡，不是邊見
@@ -148,78 +148,81 @@ theorem «定五成立» (W : «世界») (O : «本體公理» W)
       rcases hz with h' | h'
       · exact Or.inl h'
       · exact Or.inr (Or.inl h')
-    have hzJian := d4 z hzWu                         -- z 見所斷（定四）
-    have hyJian := a18 y z ⟨hyz, «五見是惑» W z hzWu, hzJian⟩   -- 故癡見所斷（假十八）
-    exact a18 c y ⟨hcy, hyHuo, hyJian⟩               -- 故心見所斷（假十八）
+    have hzJian := d4 z hzWu                         -- z 見所斷（眠定一）
+    have hyJian := a18 y z ⟨hyz, «五見是惑» W z hzWu, hzJian⟩   -- 故癡見所斷（眠假四）
+    exact a18 c y ⟨hcy, hyHuo, hyJian⟩               -- 故心見所斷（眠假四）
 
-/-- 【定六】欲界無有覆無記表——頌「欲無有覆表，以無等起故」。
+/-- 【業定四】欲界無有覆無記表——頌「欲無有覆表，以無等起故」。
     依：定一、假六、假八、定五、假十九。 -/
-theorem «定六成立» (W : «世界») (O : «本體公理» W)
-    (d1 : «定一» W) (a6 : «假六» W) (a8 : «假八» W) (d5 : «定五» W) (a19 : «假十九» W) :
-    «定六» W := by
+theorem «業定四成立» (W : «世界») (O : «本體公理» W)
+    (d1 : «業定一» W) (a6 : «業假六» W) (a8 : «業假八» W) (d5 : «眠定二» W) (a19 : «業假十一» W) :
+    «業定四» W := by
   rintro ⟨r, hrYu, hrXing, hrBiao⟩     -- 設有欲界有覆無記表 r，往下推出矛盾
   have hrSe := «表色是色» W O r hrBiao
-  have hrDeng := d1 r ⟨hrSe, by rw [hrXing]; decide⟩            -- r 由等起成（定一）
-  obtain ⟨c, hrc, hSame⟩ := a6 r ⟨hrSe, hrDeng⟩                 -- 有同性的剎那等起心 c（假六）
+  have hrDeng := d1 r ⟨hrSe, by rw [hrXing]; decide⟩            -- r 由等起成（業定一）
+  obtain ⟨c, hrc, hSame⟩ := a6 r ⟨hrSe, hrDeng⟩                 -- 有同性的剎那等起心 c（業假六）
   have hcXin := (O.«類型_剎那等起» r c hrc).2.1
   have hcXing : W.«性» c = .«有覆無記» := by rw [← hSame]; exact hrXing
-  have hcYu : W.«繫不繫» c = .«欲界繫» := by rw [← a8 r c hrc]; exact hrYu   -- c 同在欲界（假八）
-  exact a19 r c hrc (d5 c ⟨hcYu, hcXing, hcXin⟩)   -- c 見所斷（定五），卻作剎那等起（違假十九）
+  have hcYu : W.«繫不繫» c = .«欲界繫» := by rw [← a8 r c hrc]; exact hrYu   -- c 同在欲界（業假八）
+  exact a19 r c hrc (d5 c ⟨hcYu, hcXing, hcXin⟩)   -- c 見所斷（眠定二），卻作剎那等起（違業假十一）
 
-/-- 【定七】表唯在欲界、初靜慮——頌「表唯有伺二」。
+/-- 【業定五】表唯在欲界、初靜慮——頌「表唯有伺二」。
     依：假七、假九、假十、假八、假十一、約一。 -/
-theorem «定七成立» (W : «世界») (O : «本體公理» W)
-    (a7 : «假七» W) (a9 : «假九» W) (a10 : «假十» W) (a8 : «假八» W)
-    (a11 : «假十一» W) (k1 : «約一» W) : «定七» W := by
+theorem «業定五成立» (W : «世界») (O : «本體公理» W)
+    (a7 : «業假七» W) (a9 : «業假九» W) (a10 : «界假六» W) (a8 : «業假八» W)
+    (a11 : «業假十» W) (k1 : «界約一» W) : «業定五» W := by
   intro r hrBiao
-  obtain ⟨c, hrc⟩ := a7 r hrBiao                     -- 表必有剎那等起心（假七）
+  obtain ⟨c, hrc⟩ := a7 r hrBiao                     -- 表必有剎那等起心（業假七）
   have hcXin := (O.«類型_剎那等起» r c hrc).2.1
-  rw [a8 r c hrc]                                    -- 表與心同地（假八）
+  rw [a8 r c hrc]                                    -- 表與心同地（業假八）
   exact «有伺有漏心唯欲界或初靜慮» W k1 a10 c hcXin (a9 r c ⟨hrBiao, hrc⟩) (a11 r c hrc)
 
-/-- 【定七乙】有覆無記表唯在欲界、初靜慮。不需要假七。
+/-- 【業定六】有覆無記表唯在欲界、初靜慮。不需要業假七。
     依：定一、假六、假九、假十、假八、假十一、約一。 -/
-theorem «定七乙成立» (W : «世界») (O : «本體公理» W)
-    (d1 : «定一» W) (a6 : «假六» W) (a9 : «假九» W) (a10 : «假十» W) (a8 : «假八» W)
-    (a11 : «假十一» W) (k1 : «約一» W) : «定七乙» W := by
+theorem «業定六成立» (W : «世界») (O : «本體公理» W)
+    (d1 : «業定一» W) (a6 : «業假六» W) (a9 : «業假九» W) (a10 : «界假六» W) (a8 : «業假八» W)
+    (a11 : «業假十» W) (k1 : «界約一» W) : «業定六» W := by
   intro r ⟨hrXing, hrBiao⟩
   have hrSe := «表色是色» W O r hrBiao
   have hrDeng := d1 r ⟨hrSe, by rw [hrXing]; decide⟩
-  obtain ⟨c, hrc, _⟩ := a6 r ⟨hrSe, hrDeng⟩         -- 剎那等起心由假六給出，不必假七
+  obtain ⟨c, hrc, _⟩ := a6 r ⟨hrSe, hrDeng⟩         -- 剎那等起心由業假六給出，不必業假七
   have hcXin := (O.«類型_剎那等起» r c hrc).2.1
   rw [a8 r c hrc]
   exact «有伺有漏心唯欲界或初靜慮» W k1 a10 c hcXin (a9 r c ⟨hrBiao, hrc⟩) (a11 r c hrc)
 
-/-- 【定八】有覆無記表唯初靜慮繫。依：定六、定七乙。 -/
-theorem «定八成立» (W : «世界») (d6 : «定六» W) (d7b : «定七乙» W) : «定八» W := by
+/-- 【業定七】有覆無記表唯初靜慮繫。依：業定四、業定六。 -/
+theorem «業定七成立» (W : «世界») (d6 : «業定四» W) (d7b : «業定六» W) : «業定七» W := by
   intro r ⟨hrXing, hrBiao⟩
   rcases d7b r ⟨hrXing, hrBiao⟩ with h | h
-  · exact absurd ⟨r, h, hrXing, hrBiao⟩ d6        -- 在欲界：與定六相違
+  · exact absurd ⟨r, h, hrXing, hrBiao⟩ d6        -- 在欲界：與業定四相違
   · exact h                                        -- 在初靜慮：成立
 
-/-- 【目標】有覆無記色唯初靜慮繫。依：定三、定八。 -/
-theorem «目標成立» (W : «世界») (d3 : «定三» W) (d8 : «定八» W) : «目標» W := by
+/-- 【業定八】有覆無記色唯初靜慮繫。依：業定三、業定七。 -/
+theorem «業定八成立» (W : «世界») (d3 : «業定三» W) (d8 : «業定七» W) : «業定八» W := by
   intro r ⟨hrXing, hrSe⟩
-  exact d8 r ⟨hrXing, d3 r ⟨hrXing, hrSe⟩⟩         -- 它是表（定三），故唯初靜慮繫（定八）
+  exact d8 r ⟨hrXing, d3 r ⟨hrXing, hrSe⟩⟩         -- 它是表（業定三），故唯初靜慮繫（業定七）
 
-/-! ## 把整棵樹拼起來：從十九條假定、一條約定直接到目標 -/
+/-! ## 把整棵樹拼起來：從命題庫的假定、約定直接到業定八 -/
 
-/-- 目標由諸假定推出。前提恰是體系的全部基礎（假七不在其中）。
-    證明不再寫推理，只是把上面各條定理按「依」的關係拼接起來。 -/
-theorem «目標由諸假定» (W : «世界») (O : «本體公理» W) (k1 : «約一» W)
-    (a1 : «假一» W) (a2 : «假二» W) (a3 : «假三» W) (a4 : «假四» W) (a5 : «假五» W)
-    (a6 : «假六» W) (a8 : «假八» W) (a9 : «假九» W) (a10 : «假十» W)
-    (a11 : «假十一» W) (a12 : «假十二» W) (a13 : «假十三» W) (a14 : «假十四» W)
-    (a15 : «假十五» W) (a16 : «假十六» W) (a17 : «假十七» W) (a18 : «假十八» W)
-    (a19 : «假十九» W) : «目標» W :=
-  let d1 := «定一成立» W O a1 a2 a3
-  let d2 := «定二成立» W d1 a4
-  let d3 := «定三成立» W d2 a5
-  let d4 := «定四成立» W a16 a17
-  let d5 := «定五成立» W O a12 a13 a14 a15 d4 a18
-  let d6 := «定六成立» W O d1 a6 a8 d5 a19
-  let d7b := «定七乙成立» W O d1 a6 a9 a10 a8 a11 k1
-  let d8 := «定八成立» W d6 d7b
-  «目標成立» W d3 d8
+/-- 業定八由諸假定推出。前提是它在命題庫中的全部基礎（業假七不在其中）。
+    「相應的心、心所同性」（根定二）不再是假定，而由 Proof5 中的「相應同性由諸假定」從相應五義與四種善推出。
+    證明不再寫推理，只是把各條定理按「依」的關係拼接起來。 -/
+theorem «業定八由諸假定» (W : «世界») (O : «本體公理» W) (k1 : «界約一» W) (kx : «根約一» W)
+    (a1 : «業假一» W) (a2 : «業假二» W) (a3 : «業假三» W) (a4 : «業假四» W) (a5 : «業假五» W)
+    (a6 : «業假六» W) (a8 : «業假八» W) (a9 : «業假九» W) (a10 : «界假六» W)
+    (a11 : «業假十» W) (a12 : «根假一» W) (a14 : «根假二» W)
+    (a15 : «眠假一» W) (a16 : «眠假二» W) (a17 : «眠假三» W) (a18 : «眠假四» W)
+    (a19 : «業假十一» W) (b12 : «業假十二» W) (b13 : «業假十三» W) (b14 : «業假十四» W) :
+    «業定八» W :=
+  let r2 := «相應同性由諸假定» W O kx a1 b12 b13 b14
+  let d1 := «業定一成立» W O a1 a2 a3
+  let d2 := «業定二成立» W d1 a4
+  let d3 := «業定三成立» W d2 a5
+  let d4 := «眠定一成立» W a16 a17
+  let d5 := «眠定二成立» W O a12 r2 a14 a15 d4 a18
+  let d6 := «業定四成立» W O d1 a6 a8 d5 a19
+  let d7b := «業定六成立» W O d1 a6 a9 a10 a8 a11 k1
+  let d8 := «業定七成立» W d6 d7b
+  «業定八成立» W d3 d8
 
-end Kosa.M4
+end Kosa.Lib

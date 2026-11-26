@@ -59,7 +59,7 @@ theorem «欲界有覆無記心唯內門轉» (W : «世界»)
 theorem «有覆無記色是表色» (W : «世界») (p10b : «前提10乙» W) (p15 : «前提15» W)
     (r : W.E) (hrXing : W.«性» r = .«有覆無記») (hrSe : W.«法類» r = .«色») :
     «表色» W r := by
-  have hYe : «業» W r := p10b r ⟨hrSe, by rw [hrXing]; decide⟩
+  have hYe : «色業» W r := p10b r ⟨hrSe, by rw [hrXing]; decide⟩
   rcases hYe with h | h
   · exact h
   · have hJi := p15 r h

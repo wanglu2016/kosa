@@ -5,7 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .demos import module_one, module_two, module_three, ROOT
+from .demos import module_one, module_two, module_three, ROOT, verses as verses_checker
 from .lang import show, parse_class
 from .engine import Compiler
 from .lean import LeanExport
@@ -552,20 +552,34 @@ def section_tree(R4):
     T = R4["tree"]
     N = T.nodes
     vc = R4["verse_checks"]
-    tree = f'<ul class="tree">{tree_html(m, T, "目標", set(), vc)}</ul>'
-    assumptions = [s for s, n in N.items() if n.layer == "假定"]
+    tree = f'<ul class="tree">{tree_html(m, T, T.goal, set(), vc)}</ul>'
+    scope = T.closure[T.goal]
+    assumptions = [s for s, n in N.items() if n.layer == "假定" and s in scope]
     pend = [s for s in assumptions if m.statements[s].meta.get("狀態") == "待核"]
     lit = [s for s in assumptions if s not in pend]
     users = {a: [s for s, n in N.items() if a in n.deps] for a in N}
     rows = []
-    for a in [s for s, n in N.items() if n.layer in ("約定", "假定")]:
+    for a in [s for s, n in N.items() if n.layer in ("約定", "假定") and s in scope]:
         st = m.statements[a]
         vb = verse_badge(vc, a)
         src = vb if vb else E(st.meta.get("依據", ""))
         status = '<span class="pend">待核</span>' if a in pend else ('約定' if N[a].layer == "約定" else '有文獻')
         rows.append(f"<tr><td class='k'>{E(a)}</td><td>{E(N[a].title)}</td><td><code>{E(st.text)}</code></td><td>{status}</td><td class='note'>{src}</td><td>{tags(users[a])}</td></tr>")
     edges = []
+    in_tree = set()
+
+    def _walk(x):
+        if x in in_tree:
+            return
+        in_tree.add(x)
+        for d in N[x].deps:
+            _walk(d)
+    _walk(T.goal)
+    for x in getattr(m, "side", []):
+        _walk(x)
     for sid, ec in T.edges.items():
+        if sid not in in_tree:
+            continue
         ok = ec.ok and not ec.unnecessary
         edges.append(f"<tr><td class='k'>{E(sid)}</td><td>{E(N[sid].title)}</td><td>{tags(N[sid].deps)}</td><td class='{'ok' if ec.ok else 'bad'}'>{'✓' if ec.ok else '✗'}</td><td class='{'ok' if not ec.unnecessary else 'bad'}'>{'✓' if not ec.unnecessary else '多餘：' + '、'.join(ec.unnecessary)}</td></tr>")
         if not ec.ok and ec.world is not None:
@@ -573,7 +587,7 @@ def section_tree(R4):
     dep = [a for a, v in T.dependent_assumptions.items() if v]
     goal_base = T.closure[T.goal]
     tight = len(T.goal_minimal) == 1 and set(T.goal_minimal[0]) == goal_base
-    not_on_path = [a for a in assumptions if a not in goal_base]
+    not_on_path = []
     prec = []
     for r in R4["precision"]:
         r = r + [""] * (5 - len(r))
@@ -596,12 +610,12 @@ def section_tree(R4):
 <li><span class="lay 約定">約定</span> 由定義或本體成立，無可爭議。大部分約定直接寫在本體裡：門、值、定義、關係的類型，以及「每法於每門恰取一值」。</li>
 <li><span class="lay 假定">假定</span> 不在本庫中推出的論點。有頌文或論文明文的，記出處並與 CBETA 核對；憑阿毘達磨知識補出而尚未找到明文的，標「待核」。</li>
 <li><span class="lay 定理">定理</span> 由所列的前提推出。每一條都經兩道檢驗：求解器檢驗它由所依推出，而且所依缺一不可；Lean 內核再證明一次，不受世界大小的限制。</li>
-<li><span class="lay 目標">目標</span> 有覆無記色唯初靜慮繫。</li>
+<li><span class="lay 目標">目標</span> 有覆無記色唯初靜慮繫（命題庫【業定八】）。</li>
 </ul>
-<p>結果：{len(assumptions)} 條假定（{len(lit)} 條有頌文或論文明文，{len(pend)} 條待核），{sum(1 for n in N.values() if n.layer == '約定')} 條約定（另有本體中的約定），{sum(1 for n in N.values() if n.layer == '定理')} 條定理。</p>
+<p>結果：目標最終依賴 {len(assumptions)} 條假定（{len(lit)} 條有頌文或論文明文，{len(pend)} 條待核）、{sum(1 for x in scope if N[x].layer == '約定')} 條約定（另有本體中的約定）；樹中有 {sum(1 for x in in_tree if N[x].layer == '定理')} 條定理。自 v0.4 起這些條目都在命題庫中，與其他模組共用。</p>
 
 <h3>前提樹</h3>
-<p class="note">從目標往下讀。每個節點下面是它所依的條目；已在前面展開過的，記「見上」。點節點可以收起。</p>
+<p class="note">從目標【業定八】往下讀。每個節點下面是它所依的條目；已在前面展開過的，記「見上」。點節點可以收起。</p>
 <div class="scroll">{tree}</div>
 
 <h3>機器檢驗</h3>
@@ -609,10 +623,10 @@ def section_tree(R4):
 <ul>
 <li>全部假定、約定彼此相容：{'✓' if T.consistent else '✗'}。</li>
 <li>假定互不可推（沒有一條假定能由其餘推出）：{'✓' if not dep else '✗ ' + E('、'.join(dep))}。</li>
-<li>目標最終依賴 {len(goal_base)} 條假定、約定；這恰是目標在全部假定中唯一的極小前提集：{'✓' if tight else '✗'}。也就是說，體系裡沒有一條在目標的證明中是多餘的。{'不在目標證明路徑上的假定：' + tags(not_on_path) + '（只用於旁支定理）。' if not_on_path else ''}</li>
+<li>目標最終依賴 {len(goal_base)} 條假定、約定。在整個命題庫中，目標的極小前提集有 {len(T.goal_minimal)} 個{'，恰是這一個' if tight else '——命題庫合併以後，別的模組帶來的條目提供了另外的證明路線（例如以「非所斷即無漏」代替「剎那等起心有漏」）'}。</li>
 </ul>
 <div class="box"><b>第一次改進：引擎找到一條更省的路。</b>
-<p>初版的樹讓【定八】依賴【定七】「表唯在欲界、初靜慮」（即頌「表唯有伺二」），因而依賴【假七】「表業必有剎那等起心」。每條邊都檢驗通過，但引擎再算目標在全部假定中的極小前提集時，發現假七用不上：有覆無記表的剎那等起心，已由【定一】與【假六】保證。於是新增【定七乙】「有覆無記表唯在欲界、初靜慮」，它比定七弱，但不需要假七；定八改依定七乙。定七作為頌文的形式化仍保留在庫中，只是不再在目標的證明路徑上。</p>
+<p>初版的樹讓【業定七】依賴【業定五】「表唯在欲界、初靜慮」（即頌「表唯有伺二」），因而依賴【業假七】「表業必有剎那等起心」。每條邊都檢驗通過，但引擎再算目標在全部假定中的極小前提集時，發現業假七用不上：有覆無記表的剎那等起心，已由【業定一】與【業假六】保證。於是新增【業定六】「有覆無記表唯在欲界、初靜慮」，它比業定五弱，但不需要業假七；業定七改依業定六。業定五作為頌文的形式化仍保留在庫中，只是不再在目標的證明路徑上。</p>
 <p class="note">這正是你說的「在完善的過程中，找到更簡潔的推理」。每加一條假定或定理，這類檢查都會自動重跑。</p></div>
 
 <h3>假定與約定一覽</h3>
@@ -621,7 +635,7 @@ def section_tree(R4):
 <h3 id="precision">2022 文十六條前提的精確化</h3>
 <p>原文是示例，這裡逐條判定它在體系中的位置：精確 {counts.get('精確', 0)} 條，精確化 {counts.get('精確化', 0)} 條，可推出的定理 {counts.get('定理', 0)} 條，本體約定 {counts.get('約定', 0)} 條，不必要 {counts.get('不必要', 0)} 條。</p>
 <div class="scroll"><table class="stack"><thead><tr><th>原前提</th><th>原文</th><th>判定</th><th>在體系中</th><th>說明</th></tr></thead><tbody>{''.join(prec)}</tbody></table></div>
-<p><b>原文沒有、體系新增的假定：</b>{tags(new_ones)}。其中最基礎的是【假一】至【假四】：頌「勝義善解脫，自性慚愧根，相應彼相應，等起色業等」所說的四種善。2022 文的「色由等起成善染性」，在體系中不再是前提，而是由四種善推出的定理（定一）：色不是勝義，不是心所，沒有相應，所以它的善染只能由等起而成。</p>
+<p><b>原文沒有、體系新增的假定：</b>{tags(new_ones)}。其中最基礎的是【業假一】至【業假四】：頌「勝義善解脫，自性慚愧根，相應彼相應，等起色業等」所說的四種善。2022 文的「色由等起成善染性」，在體系中不再是前提，而是由四種善推出的定理（業定一）：色不是勝義，不是心所，沒有相應，所以它的善染只能由等起而成。</p>
 
 <h3 id="pending">待核的 {len(pend)} 條：需要您確認</h3>
 <p>這幾條是我憑阿毘達磨知識補出的，體系離不開它們，但我還沒有找到明文。請您判斷是否成立、出處在哪裡。若某條不成立，改動之後重跑，引擎會指出哪些定理隨之失效、需要改走哪條路。</p>
@@ -631,23 +645,23 @@ def section_tree(R4):
 
 def section_lean_guide(R4):
     src = (ROOT / "lean" / "Kosa" / "Proof4.lean").read_text(encoding="utf-8")
-    d3 = re.search(r"/-- 【定三】.*?(?=\n\n/--)", src, re.S).group(0)
-    whole = re.search(r"theorem «目標由諸假定».*?«目標成立» W d3 d8", src, re.S).group(0)
+    d3 = re.search(r"/-- 【業定三】.*?(?=\n\n/--)", src, re.S).group(0)
+    whole = re.search(r"theorem «業定八由諸假定».*?«業定八成立» W d3 d8", src, re.S).group(0)
     link = R4.get("web_link", "")
     btn = f'<a class="btn" href="{E(link)}">在官方網頁編輯器中打開模組四（免安裝）</a>' if link else ""
     return f"""
 <h2 id="lean">Lean 導讀：同一個證明，兩種寫法</h2>
 <p>Lean 是一個「證明檢查器」。你把前提和結論寫成它能讀的形式，再寫出證明步驟；它逐步核對，每一步都必須由已有的東西嚴格推出。全部通過，這個證明就對任意世界成立——不像求解器只能窮盡有限大小的世界。</p>
-<p>你不需要寫 Lean。你寫的是繁體中文命題；Kosa 把它們自動翻成 Lean 的定義（<code>lean/Kosa/Module4.lean</code>），證明另寫在 <code>lean/Kosa/Proof4.lean</code>，每一行都附了中文說明。下面以【定三】為例，左邊是中文推理，右邊是 Lean。</p>
+<p>你不需要寫 Lean。你寫的是繁體中文命題；Kosa 把命題庫自動翻成 Lean 的定義（<code>lean/Kosa/Lib.lean</code>），證明另寫在 <code>lean/Kosa/Proof4.lean</code> 等文件，每一行都附了中文說明。下面以【業定三】為例，左邊是中文推理，右邊是 Lean。</p>
 <div class="leanpair">
 <div class="box"><b>中文</b>
-<p>定三：有覆無記色唯是表色。依：定二、假五。</p>
-<p>設 x 是有覆無記色。<br>由定二（善、染之色唯是業），x 是業，即表或無表。<br>若 x 是表：成立。<br>若 x 是無表：由假五（無表唯善、不善），x 是善或不善；但 x 是有覆無記，相違。<br>所以 x 是表。</p></div>
+<p>業定三：有覆無記色唯是表色。依：業定二、業假五。</p>
+<p>設 x 是有覆無記色。<br>由業定二（善、染之色唯是業），x 是色業，即表或無表。<br>若 x 是表：成立。<br>若 x 是無表：由業假五（無表唯善、不善），x 是善或不善；但 x 是有覆無記，相違。<br>所以 x 是表。</p></div>
 <div><pre>{E(d3)}</pre></div>
 </div>
-<p>讀法要點：括號裡的 <code>(d2 : «定二» W)</code>、<code>(a5 : «假五» W)</code> 就是「依」；冒號後的 <code>«定三» W</code> 是結論；<code>by</code> 之後每一行對應左邊一句。<code>rcases hYe with h | h</code> 是「分兩種情況」，<code>cases h'</code> 是「這種情況不可能」。</p>
+<p>讀法要點：括號裡的 <code>(d2 : «業定二» W)</code>、<code>(a5 : «業假五» W)</code> 就是「依」；冒號後的 <code>«業定三» W</code> 是結論；<code>by</code> 之後每一行對應左邊一句。<code>rcases hYe with h | h</code> 是「分兩種情況」，<code>cases h'</code> 是「這種情況不可能」。</p>
 <h3>把整棵樹拼起來</h3>
-<p>每條定理單獨證明之後，從假定到目標的證明就只是按「依」拼接。下面這條定理的前提恰是體系的全部基礎（假七不在其中），證明裡沒有任何新的推理：</p>
+<p>每條定理單獨證明之後，從假定到目標的證明就只是按「依」拼接。下面這條定理的前提恰是目標在命題庫中的全部基礎（業假七不在其中），證明裡沒有任何新的推理：</p>
 <pre>{E(whole)}</pre>
 <p class="note">Lean 的公理檢查：{E(R4.get('lean_axioms', ''))}。沒有 sorry（未完成的證明），沒有額外公理；propext 是 Lean 的標準公理，來自 simp。</p>
 <h3 id="nolean">不裝 Lean，怎樣自己看到它通過</h3>
@@ -662,14 +676,15 @@ def section_lean_guide(R4):
 
 def section_verses(R1, R2, R3, R4=None, R5=None, R6=None, onto_checks=None):
     rows = []
-    groups = [("一", R1), ("二", R2), ("三", R3)] + [(k, R) for k, R in (("四", R4), ("五", R5), ("六", R6)) if R]
+    groups = [("模組一", R1), ("模組二", R2), ("模組三", R3)] + [(k, R) for k, R in (("庫/法", R4), ("模組五", R5), ("庫/補特伽羅", R6)) if R]
     if onto_checks:
         groups.append(("本體", {"verse_checks": onto_checks}))
+
     for tag, R in groups:
         for sid, field, quote, hits in R["verse_checks"]:
             loc = f"{hits[0][0]}·第{hits[0][1]}行" if hits else "未找到"
             line = hits[0][3] if hits else ""
-            rows.append(f"<tr><td>{'' if tag == '本體' else '模組'}{tag}</td><td class='k'>{E(sid)}</td><td>{E(field)}</td><td>{E(quote)}</td><td class='{'ok' if hits else 'bad'}'>{'✓' if hits else '✗'} {E(loc)}</td><td class='note'>{E(line)}</td></tr>")
+            rows.append(f"<tr><td>{tag}</td><td class='k'>{E(sid)}</td><td>{E(field)}</td><td>{E(quote)}</td><td class='{'ok' if hits else 'bad'}'>{'✓' if hits else '✗'} {E(loc)}</td><td class='note'>{E(line)}</td></tr>")
     ok = sum(1 for _, R in groups for c in R["verse_checks"] if c[3])
     n = sum(len(R["verse_checks"]) for _, R in groups)
     return f"""
@@ -714,18 +729,19 @@ def section_extend():
 def section_run(R1, R2, R3, R4, R5, R6):
     tree = """kosa/
 ├─ 本體/            門.kosa　定義.kosa　關係.kosa　概念表.tsv
+├─ 庫/              命題庫，每條命題只寫一次
+│  ├─ 法/           論域.kosa　界品　根品　世間品　業品　隨眠品
+│  └─ 補特伽羅/     論域.kosa　賢聖品　智品　定品
+├─ 題庫/            九題一.kosa　九題二.kosa（題目與書中答案）
 ├─ 模組/
-│  ├─ 一_有覆無記色/命題.kosa
-│  ├─ 二_九十八隨眠/命題.kosa
-│  ├─ 三_眾賢之矛盾/命題.kosa
-│  ├─ 四_前提體系/命題.kosa　精確化對照.tsv
-│  ├─ 五_阿羅漢最後心/命題.kosa
-│  └─ 六_阿那含成就初靜慮/命題.kosa
+│  ├─ 一_有覆無記色/  二_九十八隨眠/  三_眾賢之矛盾/（v0.1 的演示，自帶前提）
+│  ├─ 四_前提體系/命題.kosa（只寫目標）　精確化對照.tsv
+│  ├─ 五_阿羅漢最後心/  六_阿那含成就初靜慮/（只寫目標）
 ├─ 語料/            俱舍論頌.json（CBETA T1560）
-├─ kosa/            引擎（Python）：lang 語法　kb 讀庫　engine 求解　workflow 流程
-│                   evaluate 求值　render 渲染　lean 導出　corpus 核對　report 報告
-├─ lean/            Lean 4 項目：Kosa/Module1、4、5、6.lean（自動生成）　Proof1、4、5、6.lean（證明）
-│                   網頁版/模組四、五、六.lean（可貼進網頁編輯器的單文件版）
+├─ kosa/            引擎（Python）：lang 語法　kb 讀庫　engine 求解　tree 前提樹　judge 判定
+│                   workflow 流程　render 渲染　lean 導出　corpus 核對　report 報告
+├─ lean/            Lean 4 項目：Kosa/Lib.lean、LibP.lean（命題庫，自動生成）　Module1.lean
+│                   Proof1、4、5、6.lean（證明）　網頁版/（可貼進網頁編輯器的單文件版）
 ├─ .github/workflows/kosa.yml　GitHub 自動運行
 └─ 報告/index.html  本頁"""
     return f"""
@@ -734,7 +750,9 @@ def section_run(R1, R2, R3, R4, R5, R6):
 python3 -m kosa 報告              # 重跑全部模組，生成本頁
 python3 -m kosa 檢驗 一 求證 前提1 前提2 …   # 檢驗一組前提是否蘊涵某命題
 python3 -m kosa 相容 三 甲 乙 丙 …          # 檢驗一組命題是否相容，並列出衝突集
-python3 -m kosa 驗證              # 頌文核對＋前提體系逐條檢驗（GitHub 自動運行用的就是這一步）
+python3 -m kosa 驗證              # 頌文核對＋前提體系逐條檢驗＋題庫（GitHub 自動運行用的就是這一步）
+python3 -m kosa 題庫              # 判定題庫中的全部題目，與書中答案比對
+python3 -m kosa 判定 "邪見業道 唯 見所斷"   # 用命題庫判定一條命題
 python3 -m kosa 核對              # 核對全部頌文引用
 python3 -m kosa lean              # 重新導出 lean/Kosa/Module*.lean 與網頁版
 cd lean &amp;&amp; lake build             # 用 Lean 4.24 檢查證明</pre>
@@ -786,41 +804,43 @@ def section_rebuild(onto, R1, R2, R4):
 
 
 def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True, first_roots=()):
-    """前提體系模組（五、六）的通用展示。"""
+    """前提體系模組（五、六）的通用展示。條目都在命題庫中；這裡只展示目標及「旁證」所涉及的部分。"""
     m = R["module"]
     T = R["tree"]
     N = T.nodes
     vc = R["verse_checks"]
     goal = T.goal
     tree = f'<ul class="tree">{tree_html(m, T, goal, set(), vc)}</ul>'
-    side = [s for s, n in N.items() if n.layer in ("定理", "推論") and s not in T.closure.get(goal, set()) and goal not in n.deps]
     reached = set()
 
-    def walk(x):
-        if x in reached:
+    def walk(x, acc):
+        if x in acc:
             return
-        reached.add(x)
+        acc.add(x)
         for d in N[x].deps:
-            walk(d)
-    walk(goal)
-    unreached = [s for s, n in N.items() if n.layer in ("定理", "推論") and s not in reached]
-    used = {d for s in unreached for d in N[s].deps}
-    side_roots = list(first_roots) + [s for s in unreached if s not in used and s not in first_roots]
+            walk(d, acc)
+    walk(goal, reached)
+    side = [x for x in (list(first_roots) + list(getattr(m, "side", []))) if x in N]
+    side = list(dict.fromkeys(side))
     seen_side = set(reached)
-    side_trees = "".join(tree_html(m, T, s, seen_side, vc) for s in side_roots)
+    side_trees = "".join(tree_html(m, T, x, seen_side, vc) for x in side)
+    shown = set(reached)
+    for x in side:
+        walk(x, shown)
     edges = []
     for sid, ec in T.edges.items():
-        ok = ec.ok and not ec.unnecessary
+        if sid not in shown:
+            continue
         edges.append(f"<tr><td class='k'>{E(sid)}</td><td>{E(N[sid].title)}</td><td>{tags(N[sid].deps)}</td><td class='{'ok' if ec.ok else 'bad'}'>{'✓' if ec.ok else '✗'}</td><td class='{'ok' if not ec.unnecessary else 'bad'}'>{'✓' if not ec.unnecessary else '多餘：' + '、'.join(ec.unnecessary)}</td></tr>")
-    users = {a: [s for s, n in N.items() if a in n.deps] for a in N}
+    users = {a: [s for s, n in N.items() if a in n.deps and s in shown] for a in N}
     rows = []
-    for a in R["base"]:
+    for a in [x for x in R["base"] if x in shown]:
         st = m.statements[a]
         vb = verse_badge(vc, a)
         src = vb if vb else E(st.meta.get("依據", ""))
         pend = st.meta.get("狀態") == "待核"
         status = '<span class="pend">待核</span>' if pend else ('約定' if N[a].layer == "約定" else '有文獻')
-        rows.append(f"<tr><td class='k'>{E(a)}</td><td>{E(N[a].title)}</td><td><code>{E(st.text)}</code></td><td>{status}</td><td class='note'>{src}</td><td>{tags(users[a]) or '<span class=note>（庫存）</span>'}</td></tr>")
+        rows.append(f"<tr><td class='k'>{E(a)}</td><td>{E(N[a].title)}</td><td><code>{E(st.text)}</code></td><td>{status}</td><td class='note'>{src}</td><td>{tags(users[a])}</td></tr>")
     mins = "".join(f"<li>{tags(x)}</li>" for x in T.goal_minimal)
     common = set(T.goal_minimal[0]).intersection(*map(set, T.goal_minimal)) if T.goal_minimal else set()
     drop_rows = []
@@ -828,29 +848,28 @@ def tree_section(R, anchor, heading, intro, after_tree="", show_drop=True, first
         if not r.ok:
             drop_rows.append(f"<tr><td class='k'>{E(a)}</td><td>{E(N[a].title)}</td><td>{world_html(r.world, m, target_hits(r.world, m, goal))}</td></tr>")
     drop = (f"""<h3>哪幾條缺一不可</h3>
-<p>逐條去掉一條假定或約定，其餘全部保留，再問目標是否成立。不成立的，引擎給出反例——這幾條就是無論走哪條路都繞不過去的。</p>
+<p>從整個命題庫中逐條去掉一條假定或約定，其餘全部保留，再問目標是否成立。不成立的，引擎給出反例——這幾條就是無論走哪條路都繞不過去的。</p>
 <div class="scroll"><table class="stack"><thead><tr><th>去掉</th><th>內容</th><th>反例</th></tr></thead><tbody>{''.join(drop_rows)}</tbody></table></div>""" if show_drop and drop_rows else "")
-    pend_all = [a for a in R["base"] if m.statements[a].meta.get("狀態") == "待核"]
-    pend_goal = [a for a in pend_all if a in T.closure[goal]]
+    pend_goal = [a for a in R["base"] if a in T.closure[goal] and m.statements[a].meta.get("狀態") == "待核"]
     dep = [a for a, v in T.dependent_assumptions.items() if v]
+    lib = "、".join(getattr(m, "libraries", [])) or "本模組"
     return f"""
 <h2 id="{anchor}">{heading}</h2>
 {intro}
 <h3>前提樹</h3>
-<p class="note">從目標往下讀。「✓」表示求解器已檢驗：所依推得出它，且所依缺一不可；Lean 另有證明。</p>
+<p class="note">從目標【{E(goal)}】往下讀。「✓」表示求解器已檢驗：所依推得出它，且所依缺一不可；Lean 另有證明。條目都在命題庫（{E(lib)}）中。</p>
 <div class="scroll">{tree}</div>
 {f'<h3>其他定理</h3><p class="note">不在目標的證明路徑上，但由庫中的條目推出，一併收入。</p><div class="scroll"><ul class="tree">{side_trees}</ul></div>' if side_trees else ''}
 {after_tree}
 <h3>機器檢驗</h3>
 <div class="scroll"><table class="stack"><thead><tr><th>定理</th><th>內容</th><th>所依</th><th>推得出</th><th>缺一不可</th></tr></thead><tbody>{''.join(edges)}</tbody></table></div>
 <ul>
-<li>全部假定、約定彼此相容：{'✓' if T.consistent else '✗'}；假定互不可推：{'✓' if not dep else '✗ ' + E('、'.join(dep))}。</li>
-<li>目標在全部 {len(R['base'])} 條假定、約定中的極小前提集有 {len(T.goal_minimal)} 個——也就是 {len(T.goal_minimal)} 條互不包含的證明路線：<ol>{mins}</ol>每一條都用到：{tags(sorted(common, key=list(N).index))}。</li>
+<li>命題庫中全部假定、約定彼此相容：{'✓' if T.consistent else '✗'}；假定互不可推：{'✓' if not dep else '✗ ' + E('、'.join(dep))}。</li>
+<li>目標在命題庫全部 {len(R['base'])} 條假定、約定中的極小前提集有 {len(T.goal_minimal)} 個——也就是 {len(T.goal_minimal)} 條互不包含的證明路線：<ol>{mins}</ol>每一條都用到：{tags(sorted(common, key=list(N).index))}。</li>
 <li>主證明（前提樹）最終依賴 {len(T.closure[goal])} 條；其中待核的：{tags(pend_goal) or '無'}。</li>
 </ul>
 {drop}
-<h3>假定與約定</h3>
-<p class="note">「被誰所依」為空的條目，不在本題的任何證明中用到，作為庫存保留，留給以後的命題。</p>
+<h3>所涉及的假定與約定</h3>
 <div class="scroll"><table class="stack"><thead><tr><th>編號</th><th>內容</th><th>Kosa 命題</th><th>狀態</th><th>依據</th><th>被誰所依</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
 """
 
@@ -859,57 +878,190 @@ def section_m5(R5):
     m = R5["module"]
     T = R5["tree"]
     intro = f"""<p>題目：「阿羅漢最後心是苦諦、集諦。」證明的全部：最後心是無覆無記（頌「二無記涅槃」），所以不是道諦（道諦唯善）；按定義它是心，不是無為；所以不是無漏，即有漏；有漏法名苦，亦名集（頌「有漏名取蘊……及苦集世間」）。</p>
-<p>最後一步含一個約定：苦諦、集諦的範圍相等。上一版把它藏在兩個定義裡；這一版把它列為【定甲九】，放在目標的正下方。「阿羅漢最後心」也改為定義（【約甲二】）：阿羅漢心相續的最後一剎那心。</p>
-<p>第二部分證明上一版的待核假定「相應的心、心所同性」（原甲假九，現為【定甲八】）。證明逼出了更基礎的條目，見下面「其他定理」的第一棵樹。</p>"""
+<p>最後一步含一個約定：苦諦、集諦的範圍相等。上一版把它藏在兩個定義裡；這一版把它列為【界定一】，放在目標的正下方。「阿羅漢最後心」也改為定義（【世約一】）：阿羅漢心相續的最後一剎那心。</p>
+<p>第二部分證明上一版的待核假定「相應的心、心所同性」（原甲假九，現為命題庫的【根定二】）。證明逼出了更基礎的條目，見下面「其他定理」的第一棵樹。</p>"""
     box = f"""<div class="box"><b>本體約定不再隱藏</b>
 <p>為了讓「苦集同範圍」這類約定無處可藏，引擎改了規則：檢驗一條定理時，<b>只有「依」中列出的本體定義才生效</b>，其餘定義項一律當作意義不明的詞。這樣，一步推理若用到「苦諦即有漏」「道諦即無漏的有為」，就必須寫出來，否則判為推不出；寫了而沒用到，又判為多餘。前提樹中，這些本體定義顯示為「約定」節點，附定義式與頌文。</p>
 <p>按新規則重跑，模組四、六也各有幾步原來沒寫出它所用的定義（如「業」「有記」「二定以上」「生二定以上」），都已補上。</p></div>
 <div class="box"><b>相應法同性：逼出了什麼</b>
-<p>要證明「相應的心、心所同性」，先要知道一法的善惡從哪裡來。頌「勝義善解脫，自性慚愧根，相應彼相應，等起色業等，翻此名不善」說四種：心、心所不是勝義（甲假十），也不由等起（甲假十一，等起只成色業與不相應行），所以只能是自性善，或「彼相應」——與自性善相應（甲假十二、十三）。</p>
-<p>證明在這裡卡了一下：x 與自性善 z 相應，y 與 x 相應，y 是否也與 z 相應？這要求相應可以傳遞。它不是假定，而是由相應五義推出的定理（定甲七）：相應就是同所依、同所緣、同行相、同時，「同」是相等關係，自然可以傳遞。於是「一聚心、心所兩兩相應」也成了定理。</p>
-<p>剩下兩條待核（甲假十二、十三）：頌只說善、不善，把有覆無記也照此處理是類推。若您認可這一類推，或給出有覆無記的依據，相應法同性就完全落在文獻上。</p></div>"""
-    return tree_section(R5, "m5", "模組五：阿羅漢最後心是苦諦、集諦", intro, box, first_roots=("定甲八",))
+<p>要證明「相應的心、心所同性」，先要知道一法的善惡從哪裡來。頌「勝義善解脫，自性慚愧根，相應彼相應，等起色業等，翻此名不善」說四種：心、心所不是勝義（業假一），也不由等起（業假十二，等起只成色業與不相應行），所以只能是自性善，或「彼相應」——與自性善相應（業假十三、十四）。</p>
+<p>證明在這裡卡了一下：x 與自性善 z 相應，y 與 x 相應，y 是否也與 z 相應？這要求相應可以傳遞。它不是假定，而是由相應五義推出的定理（根定一）：相應就是同所依、同所緣、同行相、同時，「同」是相等關係，自然可以傳遞。於是「一聚心、心所兩兩相應」也成了定理。</p>
+<p>剩下兩條待核（業假十三、十四）：頌只說善、不善，把有覆無記也照此處理是類推。若您認可這一類推，或給出有覆無記的依據，相應法同性就完全落在文獻上。</p></div>"""
+    return tree_section(R5, "m5", "模組五：阿羅漢最後心是苦諦、集諦", intro, box, first_roots=("根定二",))
 
 
 def section_m6(R6):
     m = R6["module"]
     T = R6["tree"]
-    gap = R6["drop"]["乙假十二"]
-    st = m.statements["乙假十二"]
+    gap = R6["drop"]["智假二"]
+    st = m.statements["智假二"]
     intro = f"""<p>題目：「阿那含必然成就初靜慮。」論域換成了補特伽羅。每個人有果位、生地、兩段離染的經歷（欲界染、初靜慮染各是作異生時離，還是作聖者時離），以及入見道所依之地；「成就」味、淨、無漏初靜慮是他的謂詞。「初靜慮」取根本等至；《發智》《婆沙》問「修淨初靜慮」時，未至、中間算作「餘地」。</p>
-<p>證明分兩種情形。生在欲界或初靜慮的不還，由離欲染得淨初靜慮，未曾易地，故成就淨初靜慮。生在第二靜慮以上的不還，淨初靜慮已因易地而捨，味初靜慮因離染而不成就，只能靠無漏初靜慮——對照【定乙三】：同樣生在二定以上的異生，就不成就初靜慮。何時得無漏初靜慮，要看他在哪裡離初靜慮染、依何地入見道。</p>"""
+<p>證明分兩種情形。生在欲界或初靜慮的不還，由離欲染得淨初靜慮，未曾易地，故成就淨初靜慮。生在第二靜慮以上的不還，淨初靜慮已因易地而捨，味初靜慮因離染而不成就，只能靠無漏初靜慮——對照【靜定三】：同樣生在二定以上的異生，就不成就初靜慮。何時得無漏初靜慮，要看他在哪裡離初靜慮染、依何地入見道。</p>"""
     gapbox = f"""<div class="box"><b>引擎找到的缺口：一種不還，現有的依據說不清他是否成就初靜慮</b>
-<p>把【乙假十二】從庫中拿掉，其餘條目全部保留，目標就不成立。引擎給出的反例是：</p>
+<p>把【智假二】從庫中拿掉，其餘條目全部保留，目標就不成立。引擎給出的反例是：</p>
 {world_html(gap.world, m, target_hits(gap.world, m, T.goal))}
 <p>這是一個超越證的不還：作異生時已以世俗道離欲染、離初靜慮染（所以能生第二靜慮以上），入見道依未至定，至第十六心證不還果；死後生到第二靜慮以上。易地捨了淨初靜慮，初靜慮的愛已斷，味不成就；他作聖者以後沒有「為離初靜慮染」的機會，見道依未至，所修無漏只到未至地。他還成就根本初靜慮嗎？</p>
-<p>【乙假十二】假定他成就：{E(st.meta.get('依據', ''))}——已離欲染者依未至起無漏功德，算作「依初靜慮」，修初靜慮無漏；這一條把它推廣到道類智。推廣是否成立，要看見道、道類智的修法（「見道忍智起，即彼未來修」「修道初剎那，修六或七智」）與起功德是否不同。</p>
-<p><b>請您判斷。</b>若乙假十二成立，命題成立，且有更強的結論【定乙五】：不還都成就無漏初靜慮。若不成立，命題要加限制：除去先離欲染、依未至入見道、後生二定以上的不還。若「初靜慮」改讀為初靜慮地（含未至），這種人成就無漏未至，命題也成立——那就是讀法的問題了。</p></div>"""
+<p>【智假二】假定他成就：{E(st.meta.get('依據', ''))}——已離欲染者依未至起無漏功德，算作「依初靜慮」，修初靜慮無漏；這一條把它推廣到道類智。推廣是否成立，要看見道、道類智的修法（「見道忍智起，即彼未來修」「修道初剎那，修六或七智」）與起功德是否不同。</p>
+<p><b>請您判斷。</b>若智假二成立，命題成立，且有更強的結論【智定一】：不還都成就無漏初靜慮。若不成立，命題要加限制：除去先離欲染、依未至入見道、後生二定以上的不還。若「初靜慮」改讀為初靜慮地（含未至），這種人成就無漏未至，命題也成立——那就是讀法的問題了。</p></div>"""
     return tree_section(R6, "m6", "模組六：阿那含必然成就初靜慮", intro, gapbox)
 
 
-def section_library(onto, mods, R4, R5, R6):
-    """知識庫總表：本體規模、各模組各層條目數、全部待核假定。"""
-    nvals = sum(len(d.values) for d in onto.dims.values())
-    rows = []
-    allpend = []
-    for key, R in mods:
-        m = R["module"]
-        lay = {}
-        for sid, st in m.statements.items():
-            l = st.meta.get("層") or st.meta.get("組") or "命題"
-            lay[l] = lay.get(l, 0) + 1
-            if st.meta.get("狀態") == "待核" and st.meta.get("層") == "假定":
-                allpend.append((key, sid, st))
-        cells = "、".join(f"{k} {v}" for k, v in lay.items())
-        rows.append(f"<tr><td class='k'>模組{key}</td><td>{E(m.title.split('・', 1)[-1])}</td><td class='num'>{len(m.statements)}</td><td class='note'>{E(cells)}</td></tr>")
-    pend = "".join(f"<tr><td>{k}</td><td class='k'>{E(sid)}</td><td>{E(st.meta.get('標題', ''))}</td><td><code>{E(st.text)}</code></td></tr>" for k, sid, st in allpend)
+def _bank_cell(vs):
+    """矩陣格：引擎判為可能的果，與書中答案比對。"""
+    got = [v.sid.split("·")[-1] for v in vs if v.verdict == "可能"]
+    ok = all(v.ok for v in vs)
+    txt = "、".join(got) if got else "無"
+    return f"<td class='{'ok' if ok else 'bad'}'>{E(txt)} {'✓' if ok else '✗'}</td>"
+
+
+def _bank_matrix(out, prefix, rows, cols, rlabel, clabel):
+    by = {}
+    for v in out:
+        if v.sid.startswith(prefix):
+            pair = v.sid.split("·")[1]
+            by.setdefault(pair, []).append(v)
+    head = "".join(f"<th>以{E(c)}法</th>" for c in cols)
+    body = []
+    for r in rows:
+        cells = "".join(_bank_cell(by.get(f"{r}於{c}", [])) for c in cols)
+        body.append(f"<tr><th>{E(r)}業</th>{cells}</tr>")
+    return f'<div class="scroll"><table style="width:auto"><thead><tr><th></th>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+
+
+def _why_not(out, prefix, m):
+    """「不可能」各格的理由：推出其否定的最簡前提。"""
+    reasons = {}
+    for v in out:
+        if v.sid.startswith(prefix) and v.verdict == "不可能":
+            key = "、".join(v.short)
+            reasons.setdefault(key, []).append(v.sid.split("·", 1)[1].replace("·", "→"))
+    items = []
+    for key, cells in reasons.items():
+        ids = key.split("、")
+        desc = "；".join(f"【{i}】{m.statements[i].meta.get('標題', '')}" for i in ids if i in m.statements)
+        items.append(f"<li>{tags(ids)} {E(desc)}<br><span class='note'>排除：{E('，'.join(cells))}</span></li>")
+    return "<ul>" + "".join(items) + "</ul>"
+
+
+def section_bank(banks):
+    tot_g = sum(len(g) for _, _, _, g in banks)
+    ok_g = sum(1 for _, _, _, g in banks for vs in g.values() if all(v.ok for v in vs))
+    tot_a = sum(len(o) for _, _, o, _ in banks)
+    ok_a = sum(1 for _, _, o, _ in banks for v in o if v.ok)
+    parts = []
+    used = {}
+    for m, J, out, groups in banks:
+        for v in out:
+            for s in v.deep:
+                used.setdefault(s, set()).add(v.sid)
+    m1, J1, out1, g1 = banks[0]
+    n11p = sum(1 for v in out1 if v.sid.startswith("1.1·") and v.expected == "可能")
+    n11n = sum(1 for v in out1 if v.sid.startswith("1.1·") and v.expected == "不可能")
+    parts.append(f"""<h3>第一題：諸業以諸法為何果</h3>
+<p><b>例題1.1：善等業以善等法為哪些果？</b>每一格是引擎判為「可能」的果；五種果逐一問「可能」還是「不可能」，與書中答案比對。書中答案是頌「善等於善等，初有四二三，中有二三四，後二三三果」。</p>
+{_bank_matrix(out1, "1.1·", ["善", "不善", "無記"], ["善", "不善", "無記"], "業", "法")}
+<details><summary>「不可能」的理由（推出其否定的最簡前提）</summary>{_why_not(out1, "1.1·", m1)}</details>
+<p class="note">細節也對上了：不善業可以無記法為等流果，無記業可以不善法為等流果——書中說「在我目前翻閱過的阿毘達磨現代論文中，還沒有見哪一篇提到這個問題講對的」。引擎給的實例正是欲界的有覆無記法（身邊見品）。命題庫裡並沒有寫這個結論，它由「等流果似其因」（同類因同性，遍行因染生染）推出。</p>
+<p><b>例題1.2：三世業以三世法為哪些果？</b>書中答案是頌「過於三各四，現於未亦爾，現於現二果，未於未果三」；後業無前果。</p>
+{_bank_matrix(out1, "1.2·", ["過去", "現在", "未來"], ["過去", "現在", "未來"], "業", "法")}
+<details><summary>「不可能」的理由</summary>{_why_not(out1, "1.2·", m1)}</details>""")
+    for m, J, out, groups in banks[1:]:
+        rows = []
+        for title, vs in groups.items():
+            for i, v in enumerate(vs):
+                st = m.statements[v.sid]
+                if v.verdict in ("成立", "不可能"):
+                    why = (f"最簡：{tags(v.short)}<br>拆到底：{tags(v.deep)}" if v.deep else "由本體定義直接得出")
+                    if v.pending:
+                        why += f"<br><span class='pend'>其中待核：{E('、'.join(v.pending))}</span>"
+                else:
+                    why = (("反例：" if v.verdict == "不成立" else "實例：") + world_html(v.world, m)) if v.world is not None else ""
+                t = f"<td rowspan='{len(vs)}'>{E(title)}</td>" if i == 0 else ""
+                rows.append(f"<tr>{t}<td><code>{E(st.text)}</code></td><td>{E(v.expected)}</td><td class='{'ok' if v.ok else 'bad'}'>{E(v.verdict)} {'✓' if v.ok else '✗'}</td><td class='note'>{why}</td></tr>")
+        parts.append(f"""<h3>{E(m.title.split('・', 1)[-1])}</h3>
+<div class="scroll"><table class="stack"><thead><tr><th>題</th><th>Kosa 命題</th><th>書中</th><th>引擎</th><th>理由</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>""")
+    libm = banks[0][0]
+    N = banks[0][1].N
+    base = banks[0][1].base
+    cov = sorted(used, key=lambda s: list(N).index(s) if s in N else 999)
+    unused = [s for s in base if s not in used and N[s].layer == "假定"]
+    need = {}
+    for m, J, out, groups in banks:
+        for a, l in J.ablation(out, [s for s in cov if s in J.N]).items():
+            need.setdefault(a, []).extend(l)
+    spare = [s for s in cov if s in libm.statements and not need.get(s)]
+    cov_rows = "".join(f"<tr><td class='k'>{E(s)}</td><td>{E(libm.statements[s].meta.get('標題', ''))}</td><td class='num'>{len(used[s])}</td><td class='num'>{len(need.get(s, [])) or '—'}</td></tr>" for s in cov if s in libm.statements)
     return f"""
-<h2 id="library">知識庫總表</h2>
-<p>本體：{len(onto.dims)} 門、{nvals} 個門值、{len(onto.defs)} 個定義、{len(onto.rels)} 種關係。命題分在六個模組裡；前提體系式的模組（四、五、六）每條都標了層。</p>
-<div class="scroll"><table class="stack"><thead><tr><th>模組</th><th>題目</th><th class="num">條目</th><th>分層</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<h2 id="bank">題庫：《俱舍九題》第一、二題，{ok_g}/{tot_g} 題答對</h2>
+<p>題目從《俱舍九題》前兩題中選範圍較小的四道例題：1.1 善等業以善等法為哪些果、1.2 三世業以三世法為哪些果、2.1 業在蘊處界中是何所攝、2.2 諸善業道不善業道分別是何所斷。按書中的拆法拆成 {tot_g} 題，每題再拆成若干原子問題，共 {tot_a} 個；引擎答對 {ok_a} 個。</p>
+<p>引擎只用命題庫裡的條目作答。題目的答案（如「初有四二三」）不在庫中；庫中只有更基礎的原則，如「異熟果是無記」「等流果似其因」「果不在因前」。</p>
+<div class="two">
+<div class="box"><b>四種判定</b><p><b>成立</b>：命題庫推得出它。附「最簡前提」（可以用庫中的定理，前提最少）與「拆到底」（只用假定、約定）。<br><b>不成立</b>：命題庫推不出它，附一個滿足庫中全部條目、卻違反它的世界。<br><b>可能</b>：存在命題與命題庫相容，附一個實例。<br><b>不可能</b>：命題庫推得出它的否定，附推出否定的極小前提集。</p></div>
+<div class="box"><b>兩面都要考</b><p>只考「成立」，一個很強的庫（甚至自相矛盾的庫）也能全對；只考「不成立」「可能」，一個空庫也能全對。所以每道題都有正反兩面：該排除的要排除（不可能），不該排除的不能排除（可能）。例如 1.1 的四十五格裡，{n11p} 格是「可能」，{n11n} 格是「不可能」。</p></div>
+</div>
+{''.join(parts)}
+<h3>題庫用到了命題庫的哪些條目</h3>
+<p>下表是各題「拆到底」的前提中出現過的假定、約定。「用到它」是它出現在幾個原子問題的拆到底前提裡；「缺了它就答錯」是把它從命題庫中拿掉、重新判定，結論改變的問題數。一條假定若從未被任何題用到，它就沒有經過題庫的檢驗——它可能對，也可能錯，題庫不知道。目前未被用到的假定 {len(unused)} 條：{tags(unused)}。以後選題時，可以優先選能考到它們的題。</p>
+<p>「用到」而「缺了不答錯」的有 {len(spare)} 條：{tags(spare)}。它們在題庫中都有替代的推理路線，拿掉其中一條，別的條目仍能推出同樣的答案。這不是錯，但也說明題庫還沒有單獨考到它們。</p>
+<div class="scroll"><table style="width:auto"><thead><tr><th>條目</th><th>標題</th><th class="num">用到它</th><th class="num">缺了它就答錯</th></tr></thead><tbody>{cov_rows}</tbody></table></div>
+<h3>自己出題</h3>
+<pre>python3 -m kosa 判定 "邪見業道 唯 見所斷"
+判定：成立
+最簡前提：眠定一
+拆到底：眠假二、眠假三
+
+python3 -m kosa 判定 "有 x、y：業(x) 且 善(x) 且 不善(y) 且 等流果(x，y)"
+判定：不可能
+最簡前提：根假六</pre>
+<p class="note">命題要先寫成 Kosa 語言：自然語言的「善業以不善法為等流果」，由我譯成上面的形式。題目加入題庫，只需在 <code>題庫/</code> 下的文件裡寫一條，附「答」「題」「出處」；GitHub 每次運行都會重考全部題目。</p>
+"""
+
+
+def section_lib(libs):
+    """命題庫：按論域、按品列出全部條目。"""
+    from .tree import nodes as _nodes
+    out = []
+    allpend = []
+    total = {}
+    for name, m in libs:
+        N = _nodes(m)
+        vc = verses_checker().check_module(m)
+        by = {}
+        for sid, st in m.statements.items():
+            if "品" not in st.meta:
+                continue
+            by.setdefault(st.meta["品"], []).append(sid)
+        blocks = []
+        for pin, ids in by.items():
+            rows = []
+            for sid in ids:
+                st = m.statements[sid]
+                n = N.get(sid)
+                lay = n.layer if n else st.meta.get("層", "")
+                total[lay] = total.get(lay, 0) + 1
+                pend = st.meta.get("狀態") == "待核"
+                if pend:
+                    allpend.append((name, sid, st))
+                if lay == "定理":
+                    src = "依：" + tags(n.deps) + (f"<span class='note'>〔本體：{E('、'.join(n.def_deps))}〕</span>" if n.def_deps else "")
+                else:
+                    vb = verse_badge(vc, sid)
+                    src = vb if vb else E(st.meta.get("依據", ""))
+                status = '<span class="pend">待核</span>' if pend else ""
+                rows.append(f"<tr><td class='k'>{E(sid)}</td><td><span class='lay {E(lay)}'>{E(lay)}</span> {status}</td><td>{E(st.meta.get('標題', ''))}<br><code>{E(st.text)}</code></td><td class='note'>{src}</td></tr>")
+            blocks.append(f"<details><summary>{E(pin)}（{len(ids)} 條）</summary><div class='scroll'><table class='stack'><thead><tr><th>編號</th><th>層</th><th>命題</th><th>依據</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div></details>")
+        out.append(f"<h3>論域：{E(name)}</h3>" + "".join(blocks))
+    pend = "".join(f"<tr><td>{E(k)}</td><td class='k'>{E(sid)}</td><td>{E(st.meta.get('標題', ''))}</td><td><code>{E(st.text)}</code></td></tr>" for k, sid, st in allpend)
+    summary = "、".join(f"{k} {v} 條" for k, v in total.items())
+    return f"""
+<h2 id="library">命題庫：每條命題只寫一次</h2>
+<p>v0.3 的命題分散在各模組裡，同一條原則（如「相應的心、心所同性」）在模組四是假定，在模組五是定理。這一版把它們合併為一個命題庫，按《俱舍》的品分文件存放（<code>庫/法/界品.kosa</code>、<code>庫/法/根品.kosa</code>……）。模組四、五、六只寫一行「目標」；題庫的題目也從這裡取前提。合計：{summary}。</p>
+<p>編號是品名一字、層名一字加序數：「業假三」是業品的第三條假定，「根定二」是根品的第二條定理。各條的「原編號」欄記下它在 v0.3 模組中的編號。</p>
+<p>合併帶來兩個變化。一是模組四的「相應法同性」不再是假定，而是根品的定理，模組四的目標因而拆得更深。二是別的模組帶進來的條目，給模組四的目標提供了另外的證明路線（現在有五條）。</p>
+{''.join(out)}
 <h3 id="pending-all">全部待核的假定（{len(allpend)} 條）</h3>
-<p>這些是我憑阿毘達磨知識補出、還沒有找到明文的論點。請您逐條判斷：成立的，補上出處，改為「文獻」；不成立的，改寫或刪去，重跑之後，引擎會指出哪些定理隨之失效。</p>
-<div class="scroll"><table class="stack"><thead><tr><th>模組</th><th>編號</th><th>標題</th><th>命題</th></tr></thead><tbody>{pend}</tbody></table></div>
+<p>這些是我憑阿毘達磨知識補出、還沒有找到明文的論點。請您逐條判斷：成立的，補上出處，改為「文獻」；不成立的，改寫或刪去，重跑之後，引擎會指出哪些定理、哪些題隨之失效。</p>
+<div class="scroll"><table class="stack"><thead><tr><th>論域</th><th>編號</th><th>標題</th><th>命題</th></tr></thead><tbody>{pend}</tbody></table></div>
 """
 
 
@@ -925,9 +1077,8 @@ def lean_axioms():
         return "（本機未安裝 Lean，未重新檢查）"
     chk = lean_dir / ".axcheck.lean"
     names = ["M1.«有覆無記色唯初靜慮繫»", "M1.«欲無有覆表»", "M1.«有覆無記色唯初靜慮繫_頌文版»", "M1.«轉讀法之衝突»"]
-    names += [f"M4.«{t}»" for t in ("定一成立", "定二成立", "定三成立", "定四成立", "定五成立", "定六成立", "定七成立", "定七乙成立", "定八成立", "目標成立", "目標由諸假定")]
-    names += [f"M5.«{t}»" for t in ("目標甲由諸假定", "目標甲_以意識代定義", "相應同性由諸假定", "定甲三成立", "定甲四成立", "定甲六成立")]
-    names += [f"M6.«{t}»" for t in ("目標乙由諸假定", "目標乙_經無漏", "定乙三成立", "定乙四成立")]
+    names += [f"Lib.«{t}»" for t in ("業定八由諸假定", "眠定二成立", "世定三由諸假定", "世定三_以意識代定義", "相應同性由諸假定", "界定二成立", "世定五成立", "世定七成立")]
+    names += [f"LibP.«{t}»" for t in ("靜定四由諸假定", "靜定四_經無漏", "靜定三成立", "聖定一成立")]
     chk.write_text("import Kosa\n" + "".join(f"#print axioms Kosa.{n}\n" for n in names), encoding="utf-8")
     env = dict(__import__("os").environ)
     env["PATH"] = str(lake.parent) + ":" + env.get("PATH", "")
@@ -957,21 +1108,25 @@ def build(out: Path):
     m1 = R1["module"]
     onto = m1.onto
     onto_checks = verses().check_ontology(onto)
+    from .judge import run_bank, all_banks
+    banks = [run_bank(p) for p in all_banks()]
+    libs = [("法", R4["module"]), ("補特伽羅", R6["module"])]
     rounds = len(R1["rounds"]) - 1
     T5, T6 = R5["tree"], R6["tree"]
     must5 = [a for a, r in R5["drop"].items() if not r.ok]
-    must6 = [a for a, r in R6["drop"].items() if not r.ok]
-    npend = sum(1 for R in (R4, R5, R6) for st in R["module"].statements.values()
+    npend = sum(1 for _, lm in libs for st in lm.statements.values()
                 if st.meta.get("層") == "假定" and st.meta.get("狀態") == "待核")
-    ok5 = all(ec.ok and not ec.unnecessary for ec in T5.edges.values()) and T5.consistent
-    ok6 = all(ec.ok and not ec.unnecessary for ec in T6.edges.values()) and T6.consistent
-    nwei = len(onto.dims["色自性"].values) + 1 + len(onto.dims["心所自性"].values) + len(onto.dims["不相應自性"].values) + len(onto.dims["無為自性"].values)
+    nlib = sum(1 for _, lm in libs for st in lm.statements.values() if "品" in st.meta)
+    tot_g = sum(len(g) for _, _, _, g in banks)
+    ok_g = sum(1 for _, _, _, g in banks for vs in g.values() if all(v.ok for v in vs))
+    tot_a = sum(len(o) for _, _, o, _ in banks)
+    ok_a = sum(1 for _, _, o, _ in banks for v in o if v.ok)
     stats = f"""<div class="stats">
-<div class="stat"><b>{nwei} 法</b><span>本體按五位立自性：色 {len(onto.dims['色自性'].values)}、心 1、心所 {len(onto.dims['心所自性'].values)}、心不相應行 {len(onto.dims['不相應自性'].values)}、無為 {len(onto.dims['無為自性'].values)}</span></div>
-<div class="stat ok"><b>{'✓' if ok5 else '✗'} 題一</b><span>阿羅漢最後心是苦諦、集諦。不可少的假定只有 {len(must5)} 條：{'、'.join(must5)}；「相應法同性」也已由假定證出</span></div>
-<div class="stat"><b>{'✓*' if ok6 else '✗'} 題二</b><span>阿那含必然成就初靜慮。* 有條件：{len(T6.goal_minimal)} 條證明路線都要用到待核的乙假十二——引擎找到了一種說不清的不還</span></div>
-<div class="stat ok"><b>Lean</b><span>兩題的每條定理都由 Lean 證明，對任意大小的世界成立</span></div>
-<div class="stat"><b>{npend} 條</b><span>待核的假定，列在「知識庫總表」，請您確認</span></div>
+<div class="stat ok"><b>{ok_g}/{tot_g} 題</b><span>《俱舍九題》第一、二題的四道例題，拆成 {tot_g} 題、{tot_a} 個原子問題，引擎答對 {ok_a} 個</span></div>
+<div class="stat"><b>{nlib} 條</b><span>命題庫按品存放，每條只寫一次；模組四、五、六和題庫都從這裡取前提</span></div>
+<div class="stat ok"><b>四種判定</b><span>成立（附最簡證明）、不成立（附反例）、可能（附實例）、不可能（附理由）</span></div>
+<div class="stat ok"><b>Lean</b><span>命題庫的每條定理都由 Lean 證明</span></div>
+<div class="stat"><b>{npend} 條</b><span>待核的假定，列在「命題庫」一節末，請您確認</span></div>
 </div>"""
     flow = """<div class="flow">
 <div class="n"><b>概念</b><span>本體定義門、值、關係；詞表封閉</span></div>
@@ -983,11 +1138,11 @@ def build(out: Path):
 <div class="n done"><b>內核證明</b><span>導出 Lean，證明對任意世界成立</span></div>
 <div class="n done"><b>核對</b><span>引用的頌文逐字比對 CBETA</span></div>
 </div><p class="loopnote">「補前提」回到「檢驗」，直到沒有反例為止。模組一走了 """ + str(rounds) + """ 輪。</p>"""
-    nav = """<nav class="scroll"><a href="#rebuild">本體重建</a><a href="#m5">題一：最後心</a><a href="#m6">題二：阿那含</a><a href="#library">知識庫總表</a><a href="#tree">模組四</a><a href="#lean">Lean 導讀</a><a href="#nolean">免安裝</a><a href="#ontology">本體</a><a href="#language">命題語言</a><a href="#m1">模組一</a><a href="#m2">模組二</a><a href="#m3">模組三</a><a href="#verses">引文核對</a><a href="#extend">擴展</a><a href="#run">運行</a></nav>"""
+    nav = """<nav class="scroll"><a href="#bank">題庫</a><a href="#library">命題庫</a><a href="#m5">阿羅漢最後心</a><a href="#m6">阿那含</a><a href="#rebuild">本體</a><a href="#tree">模組四</a><a href="#lean">Lean 導讀</a><a href="#nolean">免安裝</a><a href="#ontology">本體</a><a href="#language">命題語言</a><a href="#m1">模組一</a><a href="#m2">模組二</a><a href="#m3">模組三</a><a href="#verses">引文核對</a><a href="#extend">擴展</a><a href="#run">運行</a></nav>"""
     page = f"""<!DOCTYPE html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kosa v0.3 說一切有部阿毘達磨形式化庫</title>
-<meta name="description" content="Kosa：說一切有部阿毘達磨形式化庫。本體按五位七十五法重建；證明「阿羅漢最後心是苦諦、集諦」「阿那含必然成就初靜慮」，每一步由求解器檢驗、由 Lean 證明。">
+<title>Kosa v0.4 說一切有部阿毘達磨形式化庫</title>
+<meta name="description" content="Kosa：說一切有部阿毘達磨形式化庫。統一的命題庫，《俱舍九題》題庫；每一步由求解器檢驗、由 Lean 證明。">
 <meta property="og:title" content="Kosa：說一切有部阿毘達磨形式化庫">
 <meta property="og:description" content="從一條毘曇命題拆到它的假定：每一步都由機器檢驗。">
 <meta property="og:image" content="https://wanglu2016.github.io/kosa/assets/og.png">
@@ -996,20 +1151,23 @@ def build(out: Path):
 {font_link}
 <style>{CSS}</style>{STACK_JS}</head><body>
 <header class="band top"><div class="wrap">
-<p class="note">Kosa v0.3 · 說一切有部阿毘達磨形式化庫 · 依《俱舍論頌》《俱舍九題》《俱舍萬字》</p>
-<h1>本體按七十五法重建，再證兩道題：一道成立，一道找到了缺口</h1>
-<p class="deck">這一版先把本體補全為五位七十五法，再用它證明「阿羅漢最後心是苦諦、集諦」「阿那含必然成就初靜慮」。證明中用到的、順帶證明的、暫時用不到的前提都收進庫裡。v0.2 的前提體系與 v0.1 的演示模組保留在後面，並在新本體上全部重跑通過。</p>
+<p class="note">Kosa v0.4 · 說一切有部阿毘達磨形式化庫 · 依《俱舍論頌》《俱舍九題》《俱舍萬字》</p>
+<h1>一個命題庫，一套考題：《俱舍九題》前兩題 {ok_g}/{tot_g} 題答對</h1>
+<p class="deck">這一版做兩件事。一是把散在各模組的前提合併為一個命題庫，按品存放，每條只寫一次。二是從《俱舍九題》第一、二題中選四道例題，拆成 {tot_g} 題，讓引擎只用命題庫作答，並與書中答案比對。以前各版的內容保留在後面，全部在新庫上重跑通過。</p>
 {stats}
 <div id="flow">{flow}</div>
 </div></header>
 {nav}
 <main class="band"><div class="wrap">
-{section_rebuild(onto, R1, R2, R4)}
+{section_bank(banks)}
+{section_lib(libs)}
+<h2 id="v03" style="border-top-width:6px">v0.3：兩道檢驗題與本體重建</h2>
+<p>以下是第三版的內容。兩道題的條目已併入命題庫，編號隨之改變（各條「原編號」欄可查）。</p>
 {section_m5(R5)}
 {section_m6(R6)}
-{section_library(onto, [("一", R1), ("二", R2), ("三", R3), ("四", R4), ("五", R5), ("六", R6)], R4, R5, R6)}
+{section_rebuild(onto, R1, R2, R4)}
 <h2 id="v02" style="border-top-width:6px">v0.2：模組四的前提體系</h2>
-<p>以下是第二版的內容：從「有覆無記色唯初靜慮繫」拆到十九條假定。本體重建後重跑，結果不變。</p>
+<p>以下是第二版的內容：從「有覆無記色唯初靜慮繫」拆到假定與約定。條目已併入命題庫，在新庫上重跑。</p>
 {section_tree(R4)}
 {section_lean_guide(R4)}
 <h2 id="v01" style="border-top-width:6px">v0.1 的工作流程與三個演示模組</h2>
@@ -1019,11 +1177,11 @@ def build(out: Path):
 {section_m1(R1)}
 {section_m2(R2)}
 {section_m3(R3)}
-{section_verses(R1, R2, R3, R4, R5, R6, onto_checks)}
+{section_verses(R1, R2, R3, R4, None, R6, onto_checks)}
 {section_extend()}
 {section_run(R1, R2, R3, R4, R5, R6)}
 </div></main>
-<footer class="band"><div class="wrap">Kosa v0.3。命題取自王路《俱舍九題》《俱舍萬字》及〈怎樣推導出一個毘曇命題？〉（2022），版權歸作者；頌文取自 CBETA T1560（非商業使用）。標「待核」者尚待作者確認。本頁由 <code>python3 -m kosa 報告</code> 生成。</div></footer>
+<footer class="band"><div class="wrap">Kosa v0.4。命題取自王路《俱舍九題》《俱舍萬字》及〈怎樣推導出一個毘曇命題？〉（2022），版權歸作者；頌文取自 CBETA T1560（非商業使用）。標「待核」者尚待作者確認。本頁由 <code>python3 -m kosa 報告</code> 生成。</div></footer>
 </body></html>"""
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8")

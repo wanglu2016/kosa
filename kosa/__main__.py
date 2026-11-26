@@ -5,7 +5,9 @@
   相容 〈模組〉 〈命題…〉          這些命題是否相容；不相容則列出極小衝突集
   核對                         核對全部頌文引用
   驗證                         頌文核對＋前提體系逐條檢驗；有任何一處不通過即以非零狀態退出（供 GitHub 自動運行）
-  lean                         重新導出 lean/Kosa/Module1/4/5/6.lean
+  題庫                         判定題庫（題庫/*.kosa）中的全部題目，與書中答案比對
+  判定 〈命題〉 [〈論域〉]        用命題庫判定一條命題：成立／不成立／可能／不可能，附理由
+  lean                         重新導出 lean/Kosa/Module1.lean、Lib.lean、LibP.lean 與網頁版
 〈模組〉可寫「一」至「六」或目錄名。前提可寫「組:二〇二二」表示整組。
 """
 from __future__ import annotations
@@ -20,8 +22,12 @@ from .workflow import analyze_conflicts
 MODS = {"一": "一_有覆無記色", "二": "二_九十八隨眠", "三": "三_眾賢之矛盾", "四": "四_前提體系",
         "五": "五_阿羅漢最後心", "六": "六_阿那含成就初靜慮"}
 TREES = ("四", "五", "六")          # 以前提體系（約定、假定、定理、目標）組織的模組
-LEAN = (("一", "Module1.lean", "Kosa.M1"), ("四", "Module4.lean", "Kosa.M4"),
-        ("五", "Module5.lean", "Kosa.M5"), ("六", "Module6.lean", "Kosa.M6"))
+# Lean 導出：模組一自成一體；命題庫各論域各導出一個文件（經由引用它的模組讀入）。
+LEAN = (("一", "Module1.lean", "Kosa.M1"), ("四", "Lib.lean", "Kosa.Lib"), ("六", "LibP.lean", "Kosa.LibP"))
+# 網頁版單文件：(名稱, 定義文件, 證明文件…)
+WEB = (("模組四", "Lib.lean", ["Proof5.lean", "Proof4.lean"]),
+       ("模組五", "Lib.lean", ["Proof5.lean"]),
+       ("模組六", "LibP.lean", ["Proof6.lean"]))
 
 
 def mod(name):
@@ -49,20 +55,18 @@ def web_lean():
         lz = lzstring.LZString()
     except ImportError:
         lz = None
-    for key, fname, ns in LEAN:
-        if key == "一":
-            continue
-        mod_src = (ROOT / "lean" / "Kosa" / fname).read_text(encoding="utf-8")
-        proof = (ROOT / "lean" / "Kosa" / fname.replace("Module", "Proof")).read_text(encoding="utf-8")
-        proof = "\n".join(l for l in proof.splitlines() if not l.startswith("import "))
-        title = MODS[key].split("_", 1)[1]
-        src = (f"-- Kosa 模組{key}：{title}（單文件版，可直接貼進 https://live.lean-lang.org 檢查）\n"
-               "-- 前半是由 Kosa 自動生成的本體與命題定義；後半是證明。\n\n" + mod_src + "\n" + proof + "\n")
-        (web / f"模組{key}.lean").write_text(src, encoding="utf-8")
+    for name, defs, proofs in WEB:
+        parts = [(ROOT / "lean" / "Kosa" / defs).read_text(encoding="utf-8")]
+        for pf in proofs:
+            src = (ROOT / "lean" / "Kosa" / pf).read_text(encoding="utf-8")
+            parts.append("\n".join(l for l in src.splitlines() if not l.startswith("import ")))
+        src = (f"-- Kosa {name}（單文件版，可直接貼進 https://live.lean-lang.org 檢查）\n"
+               "-- 前半是由 Kosa 自動生成的本體與命題庫定義；後半是證明。\n\n" + "\n".join(parts) + "\n")
+        (web / f"{name}.lean").write_text(src, encoding="utf-8")
         if lz:
             link = "https://live.lean-lang.org/#codez=" + lz.compressToEncodedURIComponent(src)
-            name = "連結.txt" if key == "四" else f"連結{key}.txt"
-            (web / name).write_text(link + "\n", encoding="utf-8")
+            fn = "連結.txt" if name == "模組四" else f"連結{name[-1]}.txt"
+            (web / fn).write_text(link + "\n", encoding="utf-8")
     print(f"已生成網頁版單文件 {web}" + ("" if lz else "（未安裝 lzstring，未生成鏈接）"))
 
 
@@ -149,9 +153,54 @@ def main(argv):
             if not hits:
                 bad += 1
                 print(f"✗ 本體【{sid}】頌「{quote}」未在 CBETA 找到")
+        from .judge import run_bank, all_banks
+        for p in all_banks():
+            m, J, out, groups = run_bank(p)
+            npass = sum(1 for g in groups.values() if all(v.ok for v in g))
+            wrong = [v for v in out if not v.ok]
+            print(f"── 題庫 {m.title}：{npass}/{len(groups)} 題答對")
+            for v in wrong:
+                print(f"✗【{v.sid}】判定為「{v.verdict}」，書中為「{v.expected}」")
+            bad += len(wrong)
         print("全部通過。" if not bad else f"{bad} 處不通過。")
         if bad:
             sys.exit(1)
+    elif cmd == "題庫":
+        from .judge import run_bank, all_banks
+        bad = 0
+        for p in all_banks():
+            m, J, out, groups = run_bank(p)
+            npass = sum(1 for g in groups.values() if all(v.ok for v in g))
+            print(f"── {m.title}：{npass}/{len(groups)} 題答對（原子問題 {sum(v.ok for v in out)}/{len(out)}）")
+            for title, vs in groups.items():
+                mark = "✓" if all(v.ok for v in vs) else "✗"
+                print(f"{mark} {title}")
+                for v in vs:
+                    if not v.ok:
+                        bad += 1
+                        print(f"    ✗【{v.sid}】判定為「{v.verdict}」，書中為「{v.expected}」")
+        print("全部答對。" if not bad else f"{bad} 個原子問題答錯。")
+        if bad:
+            sys.exit(1)
+    elif cmd == "判定":
+        from .judge import judge_text
+        from .lang import KosaSyntaxError
+        lib = "庫/" + argv[2] if len(argv) > 2 else "庫/法"
+        try:
+            m, J, v = judge_text(argv[1], lib)
+        except KosaSyntaxError as e:
+            sys.exit("命題寫不進 Kosa 語言：" + str(e).split("】", 1)[-1])
+        print(f"判定：{v.verdict}")
+        if v.verdict in ("成立", "不可能"):
+            print("最簡前提：" + ("、".join(v.short) if v.short else "（由本體定義直接得出）"))
+            print("拆到底：" + ("、".join(v.deep) if v.deep else "（由本體定義直接得出）"))
+            for s in v.deep:
+                st = m.statements[s]
+                print(f"  【{s}】{st.text}  —— {st.meta.get('標題', '')}" + ("（待核）" if st.meta.get("狀態") == "待核" else ""))
+        elif v.world is not None:
+            print("反例：" if v.verdict == "不成立" else "實例：")
+            for l in world_lines(v.world, m):
+                print("  " + l)
     elif cmd == "lean":
         from .lean import LeanExport
         for key, fname, ns in LEAN:
