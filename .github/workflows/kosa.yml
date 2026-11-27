@@ -50,10 +50,13 @@ jobs:
         continue-on-error: true
         run: python3 -m kosa 驗證
 
+      # 報告只在 main 上生成並發佈（約 10 分鐘）；分支上只做檢驗，幾分鐘就有結果。
       - name: 重跑全部模組，生成報告
+        if: github.ref == 'refs/heads/main'
         run: python3 -m kosa 報告
 
       - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
         with:
           path: 報告
 

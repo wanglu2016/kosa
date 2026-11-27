@@ -26,8 +26,7 @@ OLD = ("一", "二", "三")             # 自帶前提的舊演示模組
 # 網頁版單文件：(名稱, 定義文件, 證明文件…)
 WEB = (("模組四", "Lib.lean", ["Proof5.lean", "Proof4.lean"]),
        ("模組五", "Lib.lean", ["Proof5.lean"]),
-       ("模組六", "LibP.lean", ["Proof6.lean"]))
-LEAN_NS = {"法": ("Lib.lean", "Kosa.Lib"), "有情": ("LibP.lean", "Kosa.LibP")}
+       ("模組六", "Lib.lean", ["Proof6.lean"]))
 
 
 def mod(name):
@@ -222,15 +221,14 @@ def main(argv):
             for l in world_lines(x.counter, m):
                 print("  " + l)
     elif cmd == "lean":
-        from .lean import LeanExport, check_file
+        from .lean import LeanExport, LibExport, check_file
         onto, m1 = mod("一")
         (ROOT / "lean" / "Kosa" / "Module1.lean").write_text(LeanExport(m1).build(list(m1.statements), "Kosa.M1"), encoding="utf-8")
         lib = load_library()
-        for srt, (fname, ns) in LEAN_NS.items():
-            out = ROOT / "lean" / "Kosa" / fname
-            out.write_text(LeanExport(lib, srt).build(lib.entry_ids(), ns), encoding="utf-8")
-            print(f"已導出 {out}")
-        src, proved = check_file(lib, ROOT / "lean" / "Kosa", {s: ns for s, (_, ns) in LEAN_NS.items()})
+        out = ROOT / "lean" / "Kosa" / "Lib.lean"
+        out.write_text(LibExport(lib).build(lib.entry_ids(), "Kosa.Lib"), encoding="utf-8")
+        print(f"已導出 {out}")
+        src, proved = check_file(lib, ROOT / "lean" / "Kosa", "Kosa.Lib")
         (ROOT / "lean" / "Kosa" / "Check.lean").write_text(src, encoding="utf-8")
         print(f"已導出 Check.lean（{len(proved)} 條有 Lean 證明）")
         web_lean()

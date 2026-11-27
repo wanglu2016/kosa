@@ -675,7 +675,7 @@ def section_lean_guide(R4):
     return f"""
 <h2 id="lean">Lean 導讀：同一個證明，兩種寫法</h2>
 <p>Lean 是一個「證明檢查器」。你把前提和結論寫成它能讀的形式，再寫出證明步驟；它逐步核對，每一步都必須由已有的東西嚴格推出。全部通過，這個證明就對任意世界成立——不像求解器只能窮盡有限大小的世界。</p>
-<p>Kosa 把命題庫自動翻成 Lean 的定義（<code>lean/Kosa/Lib.lean</code> 是法，<code>LibP.lean</code> 是有情），證明寫在 <code>lean/Kosa/Proof4.lean</code> 等文件。另有自動生成的 <code>Check.lean</code>：它檢驗每條有「依」的條目，其 Lean 證明只用到「依」所列的條目——若證明偷用了別的條目，GitHub 上的 Lean 檢查就會變紅。下面以【業品20】為例。</p>
+<p>Kosa 把命題庫自動翻成 Lean 的定義（<code>lean/Kosa/Lib.lean</code>，法與有情在同一個「世界」中），證明寫在 <code>lean/Kosa/Proof4.lean</code> 等文件。另有自動生成的 <code>Check.lean</code>：它檢驗每條有「依」的條目，其 Lean 證明只用到「依」所列的條目——若證明偷用了別的條目，GitHub 上的 Lean 檢查就會變紅。下面以【業品20】為例。</p>
 <div class="leanpair">
 <div class="box"><b>中文</b>
 <p>業品20：有覆無記色唯是表色。依：業品19、業品10。</p>
@@ -956,7 +956,7 @@ def lean_axioms():
     chk = lean_dir / ".axcheck.lean"
     names = ["M1.«有覆無記色唯初靜慮繫»", "M1.«欲無有覆表»", "M1.«有覆無記色唯初靜慮繫_頌文版»", "M1.«轉讀法之衝突»"]
     names += [f"Lib.«{t}»" for t in ("業品25由諸假定", "隨眠品6成立", "世間品8由諸假定", "世間品8_以意識代定義", "相應同性由諸假定", "界品14成立", "世間品10成立", "世間品12成立")]
-    names += [f"LibP.«{t}»" for t in ("定品12由諸假定", "定品12_經無漏", "定品11成立", "賢聖品6成立")]
+    names += [f"Lib.«{t}»" for t in ("定品12由諸假定", "定品12_經無漏", "定品11成立", "賢聖品6成立")]
     chk.write_text("import Kosa\n" + "".join(f"#print axioms Kosa.{n}\n" for n in names), encoding="utf-8")
     env = dict(__import__("os").environ)
     env["PATH"] = str(lake.parent) + ":" + env.get("PATH", "")

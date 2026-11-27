@@ -1,4 +1,4 @@
-import Kosa.LibP
+import Kosa.Lib
 
 /-!
 # 模組六的證明：阿那含必然成就初靜慮
@@ -10,10 +10,10 @@ import Kosa.LibP
 狀態是「待核」。Lean 證明的是「若這些假定成立，則目標成立」；假定本身的真假，Lean 不管。
 -/
 
-namespace Kosa.LibP
+namespace Kosa.Lib
 
 /-- 不還是聖者（不是異生）。 -/
-theorem «不還是聖者» (W : «世界») (p : W.E) (h : W.«果位» p = .«不還») : «聖者» W p := by
+theorem «不還是聖者» (W : «世界») (p : W.«有情») (h : W.«果位» p = .«不還») : «聖者» W p := by
   intro hYi
   rw [h] at hYi
   cases hYi
@@ -114,4 +114,4 @@ theorem «定品12_經無漏» (W : «世界») (O : «本體公理» W) (k1 : �
     «定品12» W :=
   fun p hBu => (k1 p).2 (Or.inr (Or.inr («智品5成立» W O a1 a12 a13 a14 p hBu)))
 
-end Kosa.LibP
+end Kosa.Lib

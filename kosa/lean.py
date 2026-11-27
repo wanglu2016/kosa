@@ -199,7 +199,7 @@ def proved_in_lean(proof_dir):
 
 def check_file(module, proof_dir, namespaces):
     """生成 Check.lean：每條寫了「依」又有 Lean 證明的條目，檢驗其 Lean 證明只用「依」所列的條目。
-    （本體定義、本體結構在 Lean 中是內建的，不算在內。）namespaces：論域 → Lean 命名空間。"""
+    （本體定義、本體結構在 Lean 中是內建的，不算在內。）namespaces：命題庫的 Lean 命名空間。"""
     from .tree import nodes
     proved = proved_in_lean(proof_dir)
     N = nodes(module)
@@ -213,10 +213,7 @@ def check_file(module, proof_dir, namespaces):
         if sid not in proved or n.kind == "本體":
             continue
         deps = [d for d in n.deps if not module.statements[d].meta.get("_結構")]
-        srt = statement_sorts(module.statements[sid].formula)
-        if len(srt) != 1:
-            continue
-        by_ns.setdefault(namespaces[srt.pop()], []).append((sid, deps))
+        by_ns.setdefault(namespaces, []).append((sid, deps))
     for ns, items in by_ns.items():
         L += [f"namespace {ns}", ""]
         for sid, deps in items:
@@ -226,3 +223,146 @@ def check_file(module, proof_dir, namespaces):
             L.append("")
         L += [f"end {ns}", ""]
     return "\n".join(L), proved
+
+
+class LibExport:
+    """命題庫的 Lean 導出（v0.6 起）：一個「世界」同時有法、有情兩個論域（載體），
+    門、謂詞各屬其論域，關係可以跨論域（如「成就（有情，法）」）。"""
+
+    def __init__(self, module):
+        self.m = module
+        self.onto = module.onto
+        self.lex = module.lex
+        self.sorts = [s for s, srt in module.sorts.items() if srt.kind == "開放"]
+        self.dims = [d for s in self.sorts for d in module.sorts[s].dims]
+        self.rels = list(module.rels_used)
+
+    def car(self, s):
+        return f"W.{g(s)}"
+
+    def cls(self, ce, x):
+        k = ce[0]
+        if k == "名":
+            n = ce[1]
+            info = self.lex.kind[n]
+            if info[0] == "值":
+                return f"W.{g(info[1])} {x} = .{g(n)}"
+            if info[0] == "定義":
+                return f"{g(n)} W {x}"
+            if info[0] == "謂詞":
+                return f"W.{g(n)} {x}"
+            if info[0] == "類別":
+                return "True"
+            raise ValueError(n)
+        if k == "且":
+            return "(" + " ∧ ".join(self.cls(c, x) for c in ce[1]) + ")"
+        if k == "或":
+            return "(" + " ∨ ".join(self.cls(c, x) for c in ce[1]) + ")"
+        if k == "非":
+            return f"¬({self.cls(ce[1], x)})"
+        raise ValueError(ce)
+
+    def f(self, f):
+        k = f[0]
+        if k == "屬":
+            return self.cls(f[1], f[2])
+        if k == "係":
+            return f"W.{g(f[1])} {f[2][0]} {f[2][1]}"
+        if k == "同門":
+            return f"W.{g(f[1])} {f[2]} = W.{g(f[1])} {f[3]}"
+        if k == "同":
+            return f"{f[1]} = {f[2]}"
+        if k == "非":
+            return f"¬({self.f(f[1])})"
+        if k == "且":
+            return "(" + " ∧ ".join(self.f(x) for x in f[1]) + ")"
+        if k == "或":
+            return "(" + " ∨ ".join(self.f(x) for x in f[1]) + ")"
+        if k == "⇒":
+            return f"({self.f(f[1])} → {self.f(f[2])})"
+        if k == "⇔":
+            return f"({self.f(f[1])} ↔ {self.f(f[2])})"
+        if k in ("凡", "有"):
+            q = "∀" if k == "凡" else "∃"
+            vs = " ".join(f"({v} : {self.car(s)})" for v, s in f[1])
+            return f"({q} {vs}, {self.f(f[2])})"
+        if k == "真":
+            return "True"
+        raise ValueError(f)
+
+    def exportable(self, sid):
+        st = self.m.statements[sid]
+        return not (st.meta.get("_結構") or st.meta.get("_屬"))
+
+    def header(self, ns):
+        L = ["-- 本文件由 Kosa 自動生成（kosa/lean.py），請勿手改。",
+             "-- 命題庫：法、有情兩個論域在同一個「世界」中。",
+             "",
+             f"namespace {ns}", ""]
+        for d in self.dims:
+            dim = self.onto.dims[d]
+            vals = list(dim.values) + (["—"] if dim.applies else [])
+            L.append(f"/-- 門：{d}（{'、'.join(dim.values)}）；論域：{dim.sort} -/")
+            L.append(f"inductive {g(d + '值')} where")
+            L.append("  | " + " | ".join(g(v) for v in vals))
+            L.append("  deriving DecidableEq, Repr")
+            L.append("")
+        L.append("/-- 一個「世界」：法、有情兩個論域，各門的取值、謂詞、關係。 -/")
+        L.append(f"structure {g('世界')} where")
+        for s in self.sorts:
+            L.append(f"  {g(s)} : Type")
+        for d in self.dims:
+            L.append(f"  {g(d)} : {g(self.onto.dims[d].sort)} → {g(d + '值')}")
+        for pn, pr in self.m.preds.items():
+            L.append(f"  {g(pn)} : {g(pr.sort)} → Prop")
+        for r in self.rels:
+            s1, s2 = self.lex.rel_sorts[r]
+            L.append(f"  {g(r)} : {g(s1)} → {g(s2)} → Prop")
+        L.append("")
+        for n, text in self.onto.defs.items():
+            srt = self.lex.sort.get(n)
+            if srt not in self.sorts:
+                continue
+            body = self.cls(parse_class(text, self.lex), "x")
+            L.append(f"/-- 定義：{n}＝{text} -/")
+            L.append(f"def {g(n)} (W : {g('世界')}) (x : {self.car(srt)}) : Prop := {body}")
+            L.append("")
+        ax = []
+        for d in self.dims:
+            dim = self.onto.dims[d]
+            c = self.car(dim.sort)
+            if dim.applies:
+                cond = self.cls(parse_class(dim.applies, self.lex), "x")
+                ax.append((f"適用_{d}", f"∀ x : {c}, W.{g(d)} x = .{g('—')} ↔ ¬({cond})"))
+            for val, vap in dim.value_applies.items():
+                cond = self.cls(parse_class(vap, self.lex), "x")
+                ax.append((f"適用_{val}", f"∀ x : {c}, W.{g(d)} x = .{g(val)} → {cond}"))
+        for r in self.rels:
+            rel = self.onto.rels[r]
+            s1, s2 = self.lex.rel_sorts[r]
+            a = self.cls(parse_class(rel.sig[0], self.lex), "x")
+            b = self.cls(parse_class(rel.sig[1], self.lex), "y")
+            ne = " ∧ x ≠ y" if s1 == s2 else ""
+            ax.append((f"類型_{r}", f"∀ (x : {self.car(s1)}) (y : {self.car(s2)}), W.{g(r)} x y → ({a}) ∧ ({b}){ne}"))
+            if rel.symmetric and s1 == s2:
+                ax.append((f"對稱_{r}", f"∀ x y : {self.car(s1)}, W.{g(r)} x y → W.{g(r)} y x"))
+            if rel.transitive and s1 == s2:
+                ax.append((f"傳遞_{r}", f"∀ x y z : {self.car(s1)}, W.{g(r)} x y → W.{g(r)} y z → x ≠ z → W.{g(r)} x z"))
+        L.append("/-- 本體公理：適用條件、關係的類型約束、對稱、傳遞。 -/")
+        L.append(f"structure {g('本體公理')} (W : {g('世界')}) : Prop where")
+        for n, body in ax:
+            L.append(f"  {g(n)} : {body}")
+        L.append("")
+        return L
+
+    def build(self, sids, ns="Kosa.Lib"):
+        L = self.header(ns)
+        for sid in sids:
+            if not self.exportable(sid):
+                continue
+            st = self.m.statements[sid]
+            L.append(f"/-- 【{sid}】{st.text} -/")
+            L.append(f"def {g(sid)} (W : {g('世界')}) : Prop :=")
+            L.append(f"  {self.f(st.formula)}")
+            L.append("")
+        return "\n".join(L + [f"end {ns}", ""])

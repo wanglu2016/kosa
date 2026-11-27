@@ -71,10 +71,6 @@ example (W : «世界») (_O : «本體公理» W) (h1 : «隨眠品2» W) (h2 :
 example (W : «世界») (_O : «本體公理» W) (h1 : «根品2» W) (h2 : «根品15» W) (h3 : «根品3» W) (h4 : «隨眠品1» W) (h5 : «隨眠品5» W) (h6 : «隨眠品4» W) : «隨眠品6» W := by
   apply «隨眠品6成立» W <;> assumption
 
-end Kosa.Lib
-
-namespace Kosa.LibP
-
 example (W : «世界») (_O : «本體公理» W) (h1 : «賢聖品4» W) (h2 : «定品2» W) : «賢聖品6» W := by
   apply «賢聖品6成立» W <;> assumption
 
@@ -93,4 +89,4 @@ example (W : «世界») (_O : «本體公理» W) (h1 : «定品3» W) (h2 : «
 example (W : «世界») (_O : «本體公理» W) (h1 : «定品9» W) (h2 : «定品10» W) (h3 : «定品1» W) : «定品12» W := by
   apply «定品12成立» W <;> assumption
 
-end Kosa.LibP
+end Kosa.Lib
