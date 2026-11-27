@@ -77,7 +77,8 @@ python3 -m kosa 結構        # 施設（核心附反例）與推出（附極小
 python3 -m kosa 判定 "有 x：貪(x) 且 善(x)"   # 證成／證否／未決
 python3 -m kosa 題庫
 python3 -m kosa lean        # 重新導出 Lean 定義與 Check.lean（改了命題文字後必跑）
-python3 -m kosa 報告        # 10 分鐘以上：放到後台並等它結束（前台命令上限 10 分鐘）
+python3 -m kosa 報告        # 10 分鐘以上：用 Bash 的 run_in_background 跑，等它結束（不要用 & 或 nohup）
+python3 -m kosa 案例        # 只生成案例頁 報告/three-questions.html（本機預覽，約半分鐘）
 ```
 
 ## 六、Lean
@@ -92,7 +93,9 @@ python3 -m kosa 報告        # 10 分鐘以上：放到後台並等它結束（
 
 ## 七、Git 與發佈
 
-- 不在 main 上直接改：開分支、推送、開 PR，請作者合併。GitHub Pages 只從 main 發佈報告。
+- 不在 main 上直接改：開分支、推送、開 PR，請作者合併；作者明說「merge」時，用 REST 合併：`gh api -X PUT repos/wanglu2016/kosa/pulls/N/merge -f merge_method=merge`（GraphQL 被擋）。GitHub Pages 只從 main 發佈報告。
+- 合併前先在本機完整跑一次 `python3 -m kosa 報告`：分支上的 CI 不生成報告，報告的錯只會在 main 上暴露。
+- 案例頁：`kosa/case.py`。一組作者出的題做完，可照它寫一頁（解答原文、讀法、題網、補庫、推導、Lean、判定示例），內容盡量從庫中當場讀出。
 - 提交信息和 PR 描述按當前對話的署名要求結尾。
 - CI 流程：`.github/workflows/kosa.yml`。Lean 或驗證失敗都會標紅，但報告照樣生成。
 

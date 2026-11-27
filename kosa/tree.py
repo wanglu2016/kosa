@@ -144,6 +144,9 @@ def check_edge(engine, n):
     return EdgeCheck(n.sid, ok, unnecessary, world, needed)
 
 
+GOAL_LIMIT = 10      # 目標的極小前提集最多列這麼多個（庫大了以後，證明路線可以很多）
+
+
 def verify(engine, goal=None):
     m = engine.m
     N = nodes(m)
