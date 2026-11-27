@@ -1011,7 +1011,7 @@ def build(out: Path):
 <div class="stat ok"><b>Lean</b><span>有「依」的條目由 Lean 證明，並自動檢驗證明只用「依」所列的條目</span></div>
 <div class="stat"><b>{npend} 條</b><span>標「待核」的條目（形式化時把握不足）</span></div>
 </div>"""
-    nav = """<nav class="scroll"><a href="#v05">v0.5</a><a href="#bank">題庫</a><a href="#library">命題庫</a><a href="#wanzi">萬字</a><a href="#structure">結構</a><a href="#m5">阿羅漢最後心</a><a href="#m6">阿那含</a><a href="#tree">模組四</a><a href="#lean">Lean</a><a href="#verses">引文核對</a><a href="#ontology">本體</a><a href="#language">命題語言</a><a href="#m1">模組一</a><a href="#m2">模組二</a><a href="#m3">模組三</a><a href="#extend">待辦</a><a href="#run">運行</a></nav>"""
+    nav = """<nav class="scroll"><a href="three-questions.html">案例：三道題</a><a href="#v06">v0.6</a><a href="#v05">v0.5</a><a href="#bank">題庫</a><a href="#library">命題庫</a><a href="#wanzi">萬字</a><a href="#structure">結構</a><a href="#m5">阿羅漢最後心</a><a href="#m6">阿那含</a><a href="#tree">模組四</a><a href="#lean">Lean</a><a href="#verses">引文核對</a><a href="#ontology">本體</a><a href="#language">命題語言</a><a href="#m1">模組一</a><a href="#m2">模組二</a><a href="#m3">模組三</a><a href="#extend">待辦</a><a href="#run">運行</a></nav>"""
     v05 = f"""
 <h2 id="v05">v0.5 改了甚麼</h2>
 <ol>
@@ -1023,9 +1023,16 @@ def build(out: Path):
 <li><b>《俱舍萬字》第一遍開始。</b>第一章與第二章第一、二節入庫；九十八隨眠 150 格（十隨眠 × 三界 × 五部）全部判得出，與《萬字》一致。</li>
 <li><b>skill。</b>形式化的流程、讀法凡例、容易出錯的地方，寫在倉庫的 <code>.claude/skills/kosa-formalize/</code> 中，以後每輪工作照它做，也隨時補充。</li>
 </ol>"""
+    v06 = """
+<h2 id="v06">v0.6 改了甚麼</h2>
+<ol>
+<li><b>法與有情在同一個世界。</b>Lean 中只有一個「世界」，兩類論域；有情與法之間的關係（如「成就（有情，法）」）可以寫、可以證。</li>
+<li><b>以題養庫。</b>作者出三道題，先按阿毘達磨作答，再補庫直到每格判得出、Lean 證明通過：見<a href="three-questions.html">案例頁</a>。為此新立律儀種、律儀類、根律儀、依地四門，成就關係，九地等定義，以及 23 條命題。</li>
+<li><b>推導檢驗更嚴。</b>只依本體的條目也檢驗；「依」中的存在命題逐條考，避免有界世界裝不下時空真通過。</li>
+</ol>"""
     page = f"""<!DOCTYPE html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kosa v0.5 說一切有部阿毘達磨形式化庫</title>
+<title>Kosa v0.6 說一切有部阿毘達磨形式化庫</title>
 <meta name="description" content="Kosa：說一切有部阿毘達磨形式化庫。命題庫中哪些是施設、哪些可推出，由機器計算；三值判定；每一步由求解器檢驗、由 Lean 證明。">
 <meta property="og:title" content="Kosa：說一切有部阿毘達磨形式化庫">
 <meta property="og:description" content="哪些命題是施設，哪些由施設推出：由機器計算。">
@@ -1035,13 +1042,15 @@ def build(out: Path):
 {font_link}
 <style>{CSS}</style>{STACK_JS}</head><body>
 <header class="band top"><div class="wrap">
-<p class="note">Kosa v0.5 · 說一切有部阿毘達磨形式化庫 · 依《俱舍論頌》《俱舍九題》《俱舍萬字》</p>
+<p class="note">Kosa v0.6 · 說一切有部阿毘達磨形式化庫 · 依《俱舍論頌》《俱舍九題》《俱舍萬字》</p>
 <h1>命題庫中哪些是施設、哪些可推出，由機器計算</h1>
 <p class="deck">入庫的每條都是有部承認的命題。它們之中，哪些不能由其餘推出（核心），哪些可以推出，引擎逐條計算並給出證據：推不出的附反例，推得出的附極小前提。判定改為證成、證否、未決三值，庫不知道的事如實標為未決。</p>
 {stats}
+<p class="case"><a href="three-questions.html"><b>案例：三道題——從解答到機器證明 →</b></a><br><span class="note">五識俱思是意業嗎？哪些蘊處界中沒有任何律儀？幾地有樂受，生幾地容成就樂根？先按阿毘達磨作答，再補庫、逐格判定、Lean 證明。</span></p>
 </div></header>
 {nav}
 <main class="band"><div class="wrap">
+{v06}
 {v05}
 {section_bank(banks)}
 {section_lib(lib, S, lib_checks)}
@@ -1062,11 +1071,13 @@ def build(out: Path):
 {section_extend()}
 {section_run(R1, R2, R3, R4, R5, R6, t_struct, t_bank)}
 </div></main>
-<footer class="band"><div class="wrap">Kosa v0.5。命題取自王路《俱舍九題》《俱舍萬字》及〈怎樣推導出一個毘曇命題？〉（2022），版權歸作者；頌文取自 CBETA T1560（非商業使用）。本頁由 <code>python3 -m kosa 報告</code> 生成。</div></footer>
+<footer class="band"><div class="wrap">Kosa v0.6。命題取自王路《俱舍九題》《俱舍萬字》及〈怎樣推導出一個毘曇命題？〉（2022），版權歸作者；頌文取自 CBETA T1560（非商業使用）。本頁由 <code>python3 -m kosa 報告</code> 生成。</div></footer>
 </body></html>"""
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8")
-    build_assets(out.parent, page, fonts_ok)
+    from .case import build_case, PAGE
+    case = build_case(lib, S, out.parent / PAGE)
+    build_assets(out.parent, page + case, fonts_ok)
     return out
 
 

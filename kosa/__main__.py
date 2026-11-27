@@ -5,6 +5,7 @@
   題庫                         判定題庫中的全部題目，與書中答案比對：一致／未決／相違
   判定 〈命題〉                 用命題庫判定一條命題：證成／證否／未決，附理由。論域（法、有情）由句中的詞推出
   報告                         生成 報告/index.html
+  案例                         生成案例頁「三道題」（報告/three-questions.html，本機預覽版）
   lean                         重新導出 lean/Kosa/Lib.lean（法）、LibP.lean（有情）、Module1.lean、Check.lean 與網頁版
   檢驗 〈模組〉 〈命題〉 〈前提…〉   （舊模組一、二、三）這些前提是否蘊涵該命題
   相容 〈模組〉 〈命題…〉          （舊模組一、二、三）這些命題是否相容；不相容則列出極小衝突集
@@ -26,7 +27,9 @@ OLD = ("一", "二", "三")             # 自帶前提的舊演示模組
 # 網頁版單文件：(名稱, 定義文件, 證明文件…)
 WEB = (("模組四", "Lib.lean", ["Proof5.lean", "Proof4.lean"]),
        ("模組五", "Lib.lean", ["Proof5.lean"]),
-       ("模組六", "Lib.lean", ["Proof6.lean"]))
+       ("模組六", "Lib.lean", ["Proof6.lean"]),
+       ("三道題", "Lib.lean", ["Proof5.lean", "Proof4.lean", "Proof7.lean"]))
+LINKS = {"模組四": "連結.txt", "模組五": "連結五.txt", "模組六": "連結六.txt"}
 
 
 def mod(name):
@@ -64,7 +67,7 @@ def web_lean():
         (web / f"{name}.lean").write_text(src, encoding="utf-8")
         if lz:
             link = "https://live.lean-lang.org/#codez=" + lz.compressToEncodedURIComponent(src)
-            fn = "連結.txt" if name == "模組四" else f"連結{name[-1]}.txt"
+            fn = LINKS.get(name, f"連結・{name}.txt")
             (web / fn).write_text(link + "\n", encoding="utf-8")
     print(f"已生成網頁版單文件 {web}" + ("" if lz else "（未安裝 lzstring，未生成鏈接）"))
 
@@ -220,6 +223,11 @@ def main(argv):
             print("它不成立的世界：")
             for l in world_lines(x.counter, m):
                 print("  " + l)
+    elif cmd == "案例":
+        from .case import build_case, PAGE
+        out = ROOT / "報告" / PAGE
+        build_case(out=out)
+        print(f"已生成案例頁 {out}（本機預覽版，未附結構計算；字體見報告的 assets）")
     elif cmd == "lean":
         from .lean import LeanExport, LibExport, check_file
         onto, m1 = mod("一")
