@@ -92,33 +92,56 @@ class TreeReport:
     goal: str = ""
 
 
+def _split(m, deps):
+    """把所依拆成全稱部分與存在部分（庫模式）。"""
+    U, E = [], []
+    for d in deps:
+        for p in (m.parts(d) if m.explicit else [d]):
+            (E if m.statements[p].meta.get("_部") == "有" else U).append(p)
+    return U, E
+
+
+def _edge_ok(engine, n, deps, defs_on):
+    """所依（deps）推得出條目 n 嗎？
+    庫模式：條目與所依都拆成全稱、存在兩部分。條目的每一部分，要由所依的全稱部分、
+    或全稱部分加一條相關的存在部分推出——有界世界裝不下許多存在部分，不能全放進去，
+    否則所依本身無模型，甚麼都「推得出」。回傳 (成立?, 反例世界)。"""
+    m = engine.m
+    if not m.explicit:
+        r = engine.entails(deps, n.sid, defs_on=defs_on)
+        return r.ok, r.world
+    U, E = _split(m, deps)
+    for q in m.parts(n.sid):
+        cands = [[]] + [[e] for e in E if m.relevant(e, q)]
+        if not any(engine.entails(U + c, q, world=False, defs_on=defs_on).ok for c in cands):
+            return False, engine.entails(U, q, defs_on=defs_on).world
+    return True, None
+
+
 def check_edge(engine, n):
     """檢驗一條有「依」的條目。"""
     m = engine.m
     don = engine.defs_on_for(n.def_deps)
-    r = engine.entails(n.deps, n.sid, defs_on=don)
+    ok, world = _edge_ok(engine, n, n.deps, don)
     unnecessary, needed = [], []
-    if r.ok:
+    if ok:
         for d in n.deps:
-            if engine.entails([x for x in n.deps if x != d], n.sid, world=False, defs_on=don).ok:
+            if _edge_ok(engine, n, [x for x in n.deps if x != d], don)[0]:
                 unnecessary.append(d)
         for d in n.def_deps:
             rest = engine.defs_on_for([x for x in n.def_deps if x != d])
-            if engine.entails(n.deps, n.sid, world=False, defs_on=rest).ok:
+            if _edge_ok(engine, n, n.deps, rest)[0]:
                 unnecessary.append("〔" + d + "〕")
     else:
         # 只補本體（定義、結構條目）能不能推得出？能的話，給出一組極小的補充
         struct = [s for s in m.structure_ids() if s not in n.deps]
         alldefs = list(m.onto.defs)
-        if engine.entails(n.deps + struct, n.sid, world=False).ok:
-            need_s = engine.minimize(struct, lambda S: engine.entails(n.deps + list(S), n.sid, world=False).ok)
-            need_d = engine.minimize(alldefs, lambda D: engine.entails(
-                n.deps + need_s, n.sid, world=False, defs_on=engine.defs_on_for(list(D) + n.def_deps)).ok)
+        if _edge_ok(engine, n, n.deps + struct, None)[0]:
+            need_s = engine.minimize(struct, lambda S: _edge_ok(engine, n, n.deps + list(S), None)[0])
+            need_d = engine.minimize(alldefs, lambda D: _edge_ok(
+                engine, n, n.deps + need_s, engine.defs_on_for(list(D) + n.def_deps))[0])
             needed = need_s + [d for d in need_d if d not in engine.defs_on_for(n.def_deps)]
-    return EdgeCheck(n.sid, r.ok, unnecessary, r.world, needed)
-
-
-GOAL_LIMIT = 10      # 目標的極小前提集最多列這麼多個（庫大了以後，證明路線可以很多）
+    return EdgeCheck(n.sid, ok, unnecessary, world, needed)
 
 
 def verify(engine, goal=None):
@@ -127,7 +150,8 @@ def verify(engine, goal=None):
     goal = goal or getattr(m, "goal", None)
     R = TreeReport(N, goal=goal or "")
     for sid, n in N.items():
-        if n.kind in ("推導", "目標") and n.deps:
+        if n.kind in ("推導", "目標") and (n.deps or n.def_deps or n.meta.get("依")):
+            # 「依」只列本體定義的（如「依：〔本體：意業〕」）也要檢驗——v0.5 漏了這種
             R.edges[sid] = check_edge(engine, n)
     U = m.universal_base()
     R.consistent = engine.consistent(U).ok and all(engine.consistent(U + [e]).ok for e in m.existence_facts())

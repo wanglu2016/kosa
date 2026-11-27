@@ -5,6 +5,7 @@
 import Kosa.Proof4
 import Kosa.Proof5
 import Kosa.Proof6
+import Kosa.Proof7
 
 namespace Kosa.Lib
 
@@ -19,6 +20,12 @@ example (W : «世界») (_O : «本體公理» W) (h1 : «根品1» W) : «根�
 
 example (W : «世界») (_O : «本體公理» W) (h1 : «根品14» W) (h2 : «業品3» W) (h3 : «業品7» W) (h4 : «業品8» W) (h5 : «業品9» W) : «根品15» W := by
   apply «根品15成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W) (h1 : «根品25» W) (h2 : «界品57» W) (h3 : «界品58» W) (h4 : «界品11» W) (h5 : «界品1» W) (h6 : «根品3» W) : «根品27» W := by
+  apply «根品27成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W) (h1 : «根品27» W) (h2 : «界品1» W) : «根品28» W := by
+  apply «根品28成立» W <;> assumption
 
 example (W : «世界») (_O : «本體公理» W) (h1 : «世間品2» W) (h2 : «界品6» W) : «世間品6» W := by
   apply «世間品6成立» W <;> assumption
@@ -65,6 +72,24 @@ example (W : «世界») (_O : «本體公理» W) (h1 : «業品21» W) (h2 : �
 example (W : «世界») (_O : «本體公理» W) (h1 : «業品20» W) (h2 : «業品24» W) : «業品25» W := by
   apply «業品25成立» W <;> assumption
 
+example (W : «世界») (_O : «本體公理» W)  : «業品26» W := by
+  apply «業品26成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W) (h1 : «根品24» W) (h2 : «界品46» W) : «業品27» W := by
+  apply «業品27成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W)  : «業品31» W := by
+  apply «業品31成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W)  : «業品32» W := by
+  apply «業品32成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W)  : «業品33» W := by
+  apply «業品33成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W) (h1 : «業品28» W) (h2 : «業品30» W) : «業品34» W := by
+  apply «業品34成立» W <;> assumption
+
 example (W : «世界») (_O : «本體公理» W) (h1 : «隨眠品2» W) (h2 : «隨眠品3» W) : «隨眠品5» W := by
   apply «隨眠品5成立» W <;> assumption
 
@@ -73,6 +98,9 @@ example (W : «世界») (_O : «本體公理» W) (h1 : «根品2» W) (h2 : «
 
 example (W : «世界») (_O : «本體公理» W) (h1 : «賢聖品4» W) (h2 : «定品2» W) : «賢聖品6» W := by
   apply «賢聖品6成立» W <;> assumption
+
+example (W : «世界») (_O : «本體公理» W) (h1 : «賢聖品7» W) (h2 : «賢聖品8» W) (h3 : «賢聖品9» W) (h4 : «賢聖品10» W) : «賢聖品12» W := by
+  apply «賢聖品12成立» W <;> assumption
 
 example (W : «世界») (_O : «本體公理» W) (h1 : «賢聖品3» W) (h2 : «智品2» W) (h3 : «智品3» W) (h4 : «智品4» W) : «智品5» W := by
   apply «智品5成立» W <;> assumption

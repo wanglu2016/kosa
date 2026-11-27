@@ -4,4 +4,5 @@ import Kosa.Lib
 import Kosa.Proof5
 import Kosa.Proof4
 import Kosa.Proof6
+import Kosa.Proof7
 import Kosa.Check
