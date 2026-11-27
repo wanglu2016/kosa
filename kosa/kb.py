@@ -52,6 +52,7 @@ class Dim:
     applies: str | None
     notes: dict
     value_applies: dict = field(default_factory=dict)   # 值 → 此值的適用類（如「身表〔色處〕」）
+    sort: str = "法"                                     # 此門用於哪個論域（法、有情）
 
 
 @dataclass
@@ -75,7 +76,12 @@ class Ontology:
     @classmethod
     def load(cls, root: Path):
         o = cls()
+        cur_sort = "法"
         for head, kv, no in read_blocks(root / "門.kosa"):
+            if head.startswith("論域"):
+                # 「論域 有情」：以下各門用於有情
+                cur_sort = head[2:].strip()
+                continue
             m = re.match(r"門\s+(\S+?)(?:〔(.+?)〕)?：(.+)$", head)
             if not m:
                 raise KosaSyntaxError(f"門.kosa:{no} 無法解析：{head}")
@@ -87,7 +93,7 @@ class Ontology:
                     vapp[mv.group(1)] = mv.group(2)
                 else:
                     vals.append(raw)
-            o.dims[m.group(1)] = Dim(m.group(1), vals, m.group(2), kv, vapp)
+            o.dims[m.group(1)] = Dim(m.group(1), vals, m.group(2), kv, vapp, cur_sort)
         for head, kv, no in read_blocks(root / "定義.kosa"):
             if head.startswith("別名"):
                 a, b = head[2:].strip().split("＝")
@@ -109,16 +115,47 @@ class Ontology:
 
     def lexicon(self) -> Lexicon:
         lex = Lexicon()
+        sorts = {d.sort for d in self.dims.values()}
+        for srt in sorts:
+            lex.add(srt, ("類別",))
+            lex.sort[srt] = srt
         for d in self.dims.values():
             lex.add(d.name, ("門",))
+            lex.dim_sort[d.name] = d.sort
             for v in d.values:
                 lex.add(v, ("值", d.name))
+                lex.sort[v] = d.sort
         for n in self.defs:
             lex.add(n, ("定義",))
         for r in self.rels:
             lex.add(r, ("關係",))
         for a, b in self.aliases.items():
             lex.add_alias(a, b)
+        # 定義的論域：由定義式中的詞推出（定義可引用定義，故反覆推到不再變）
+        if getattr(self, "_def_sorts", None) is None:
+            from .lang import class_sort
+            ds = {}
+            changed = True
+            while changed:
+                changed = False
+                for n, text in self.defs.items():
+                    if n in ds:
+                        continue
+                    for k, v in ds.items():
+                        lex.sort[k] = v
+                    srt = class_sort(parse_class(text, lex), lex, f"定義「{n}」")
+                    if srt:
+                        ds[n] = srt
+                        changed = True
+            for n in self.defs:
+                if n not in ds:
+                    raise KosaSyntaxError(f"定義「{n}」推不出論域")
+            self._def_sorts = ds
+        lex.sort.update(self._def_sorts)
+        from .lang import class_sort
+        for r in self.rels.values():
+            lex.rel_sorts[r.name] = tuple(class_sort(parse_class(c, lex), lex, f"關係「{r.name}」") or "法"
+                                          for c in r.sig)
         return lex
 
     def def_refs(self, text):
@@ -218,6 +255,7 @@ class Module:
         m.side = []
         m.libraries = []
         m.auto_dims = False
+        m.explicit = False      # 庫模式：門與關係的結構（互斥、窮盡、適用、類型……）是可開關的顯性條目
         pending = []
         m._read(path, pending)
         for f in extra_files:
@@ -229,16 +267,183 @@ class Module:
         for sid, text, kv, no, src in pending:
             sort = kv.get("_論域") or m.default_sort
             try:
-                f, form = parse_statement(text, lex, sort)
+                f, form = parse_statement(text, lex, sort, infer=m.explicit)
             except KosaSyntaxError as e:
                 raise KosaSyntaxError(f"{src}:{no}【{sid}】{e}") from None
             if sid in m.statements:
                 raise KosaSyntaxError(f"{src}:{no} 編號重複：{sid}")
             m.statements[sid] = Statement(sid, text, f, form, kv, no)
-        if m.auto_dims:
+        if m.explicit:
+            m._library_dims()
+            m._structure()
+            m._split_existential()
+            m._example_witness()
+        elif m.auto_dims:
             m._auto_dims()
         m._check_dims()
         return m
+
+    # ── 庫模式 ──
+    def _library_dims(self):
+        """庫模式：每個開放類別用本體中屬於該論域的全部門；用本體的全部關係。"""
+        for s in self.sorts.values():
+            if s.kind == "開放":
+                s.dims = [d for d, dim in self.onto.dims.items() if dim.sort == s.name]
+        self.rels_used = [r for r in self.onto.rels
+                          if all(x in self.sorts for x in self.lex.rel_sorts.get(r, ("法", "法")))]
+
+    def _structure(self):
+        """把本體中隱含的命題寫成顯性條目（編號如「性・互斥」），放在全部條目之前。
+        門：互斥（一法於此門至多一值）、窮盡（適用者必有一值）、適用（取值者必屬適用類）、
+        值的適用（如身表唯在色處）。關係：類型（兩項各屬其類，且不自反）、對稱、傳遞。"""
+        out = {}
+        onto = self.onto
+
+        def add(sid, kind, name, text, extra=None):
+            meta = {"品": "本體", "_結構": kind, "標題": text}
+            if extra:
+                meta.update(extra)
+            out[sid] = Statement(sid, text, ("結構", kind, name, text), "結構", meta, 0)
+
+        for s in self.sorts.values():
+            if s.kind != "開放":
+                continue
+            for dn in s.dims:
+                d = onto.dims[dn]
+                add(f"{dn}・互斥", "互斥", dn, f"一{s.name}於「{dn}」門至多取一值")
+                if d.applies:
+                    add(f"{dn}・窮盡", "窮盡", dn, f"凡{d.applies}，於「{dn}」門必取一值")
+                    add(f"{dn}・適用", "適用", dn, f"於「{dn}」門取值者，唯是{d.applies}")
+                else:
+                    add(f"{dn}・窮盡", "窮盡", dn, f"一切{s.name}於「{dn}」門必取一值")
+                for val, vap in d.value_applies.items():
+                    add(f"{val}・適用", "值適用", (dn, val), f"{val}唯是{vap}")
+        for rn in self.rels_used:
+            r = onto.rels[rn]
+            add(f"{rn}・類型", "類型", rn, f"{rn}（x，y）：x 是{r.sig[0]}，y 是{r.sig[1]}，x、y 不同")
+            if r.symmetric:
+                add(f"{rn}・對稱", "對稱", rn, f"{rn}（x，y）則{rn}（y，x）")
+            if r.transitive:
+                add(f"{rn}・傳遞", "傳遞", rn, f"{rn}（x，y）且{rn}（y，z），x、z 不同，則{rn}（x，z）")
+        for sid in out:
+            if sid in self.statements:
+                raise KosaSyntaxError(f"條目編號「{sid}」與本體結構條目重名")
+        self.statements = {**out, **self.statements}
+
+    def _split_existential(self):
+        """把含存在部分的命題拆開：全稱部分「編號・全」、各存在部分「編號・有1」「編號・有2」……
+        有界世界只有幾個元素，全部存在命題一起考就裝不下；所以全稱部分合考，存在部分逐條與全稱部分合考。
+        （「A 通 B、C」＝ 凡 A 皆 B 或 C，且有 A 是 B、有 A 是 C：全稱一部分、存在兩部分。）"""
+        add = {}
+        for sid, st in self.statements.items():
+            if st.meta.get("_結構"):
+                continue
+            f = st.formula
+            conj = f[1] if f[0] == "且" else [f]
+            ex = [g for g in conj if g[0] == "有"]
+            if not ex:
+                continue
+            un = [g for g in conj if g[0] != "有"]
+            st.meta["_部分"] = []
+            if un:
+                pid = f"{sid}・全"
+                g = un[0] if len(un) == 1 else ("且", un)
+                add[pid] = Statement(pid, show(g), g, "全稱部分", {"_屬": sid, "_部": "全"}, st.line)
+                st.meta["_部分"].append(pid)
+            for i, g in enumerate(ex, 1):
+                pid = f"{sid}・有{i}" if len(ex) > 1 else f"{sid}・有"
+                add[pid] = Statement(pid, show(g), g, "存在部分", {"_屬": sid, "_部": "有"}, st.line)
+                st.meta["_部分"].append(pid)
+        self.statements.update(add)
+
+    def _example_witness(self):
+        """題目（有「答」的條目、臨時判定的命題）若是「凡 A 皆……」，另立「編號・例」＝有 A，
+        供判定「未決」時給一個不空的實例世界（否則最小的實例常是空世界，看不出甚麼）。"""
+        add = {}
+        for sid, st in self.statements.items():
+            if not (st.meta.get("答") or sid == "待判"):
+                continue
+            f = st.formula
+            if f[0] == "凡" and len(f[1]) == 1 and f[2][0] in ("⇒", "⇔") and f[2][1][0] == "屬":
+                pid = f"{sid}・例"
+                g = ("有", f[1], f[2][1])
+                add[pid] = Statement(pid, show(g), g, "實例", {"_屬": sid, "_部": "例"}, st.line)
+        self.statements.update(add)
+
+    def structure_ids(self):
+        return [s for s, st in self.statements.items() if st.meta.get("_結構")]
+
+    def entry_ids(self):
+        """命題庫的條目（不含本體結構條目、題目、拆出的部分）。"""
+        return [s for s, st in self.statements.items()
+                if not st.meta.get("_結構") and st.meta.get("_庫") and not st.meta.get("答")]
+
+    def parts(self, sid):
+        """一條命題拆成的部分；沒有存在部分的，就是它自己。"""
+        return self.statements[sid].meta.get("_部分") or [sid]
+
+    def universal_base(self):
+        """全稱的底子：本體結構條目、無存在部分的條目、有存在部分者的全稱部分。"""
+        out = self.structure_ids()
+        for s in self.entry_ids():
+            out += [p for p in self.parts(s) if self.statements[p].meta.get("_部") != "有"]
+        return out
+
+    def content_names(self, sid):
+        """一條命題涉及的詞（定義展開到門值；門值連同其門）：用來判斷兩條命題是否相關。"""
+        cache = self.__dict__.setdefault("_names", {})
+        if sid in cache:
+            return cache[sid]
+        out = set()
+
+        def cls(ce):
+            k = ce[0]
+            if k == "名":
+                n = ce[1]
+                info = self.lex.kind.get(n, ("",))
+                if info[0] == "定義":
+                    if n not in out:
+                        out.add(n)
+                        cls(parse_class(self.onto.defs[n], self.lex))
+                elif info[0] == "值":
+                    out.add(n)
+                    out.add(info[1])
+                elif info[0] == "謂詞":
+                    out.add(n)
+                return
+            for c in (ce[1] if k in ("且", "或") else [ce[1]]):
+                cls(c)
+
+        def walk(f):
+            k = f[0]
+            if k in ("凡", "有"):
+                walk(f[2])
+            elif k in ("且", "或"):
+                for g in f[1]:
+                    walk(g)
+            elif k == "非":
+                walk(f[1])
+            elif k in ("⇒", "⇔"):
+                walk(f[1])
+                walk(f[2])
+            elif k == "屬":
+                cls(f[1])
+            elif k == "係":
+                out.add(f[1])
+            elif k == "同門":
+                out.add(f[1])
+        walk(self.statements[sid].formula)
+        cache[sid] = out
+        return out
+
+    def relevant(self, a, b):
+        """兩條命題有沒有共用的詞（不計「法類」這類幾乎處處出現的門）。"""
+        common = self.content_names(a) & self.content_names(b)
+        return bool(common - {"法類"})
+
+    def existence_facts(self):
+        """命題庫中的存在部分（逐條與全稱底子合考）。"""
+        return [p for s in self.entry_ids() for p in self.parts(s) if self.statements[p].meta.get("_部") == "有"]
 
     def _read(self, path: Path, pending, lib_meta=None):
         m, lex = self, self.lex
@@ -263,6 +468,7 @@ class Module:
                 if name in m.sorts:
                     continue
                 lex.add(name, ("類別",))
+                lex.sort[name] = name
                 if rest.startswith("開放"):
                     m.sorts[name] = Sort(name, "開放", size=int(re.search(r"\d+", rest).group(0)))
                 else:
@@ -274,6 +480,7 @@ class Module:
                 name = mm.group(1)
                 dims = [d.strip() for d in re.split(r"[×xX＊*]", mm.group(2))]
                 lex.add(name, ("類別",))
+                lex.sort[name] = name
                 m.sorts[name] = Sort(name, "積", dims=dims)
             elif head.startswith("用門 "):
                 mm = re.match(r"用門\s+(\S+?)：(.+)$", head)
@@ -290,6 +497,7 @@ class Module:
                 if name in m.preds:
                     continue
                 lex.add(name, ("謂詞", sort))
+                lex.sort[name] = sort
                 if rest == "待定":
                     m.preds[name] = Pred(name, sort, "待定", notes=kv)
                 else:
@@ -314,18 +522,14 @@ class Module:
         if not root.is_dir():
             raise KosaSyntaxError(f"沒有命題庫「{rel}」")
         self.libraries.append(rel)
-        self.auto_dims = True
+        self.explicit = True
         head_file = root / "論域.kosa"
         order = []
-        sort = None
         for head, kv, no in read_blocks(head_file):
-            if head.startswith("論域"):
-                sort = head[2:].strip()
             if head.startswith("次序："):
                 order = split_names(head.split("：", 1)[1])
         self._read(head_file, pending, lib_meta={})
-        if sort:
-            self.default_sort = sort
+        sort = self.default_sort
         files = [root / f"{n}.kosa" for n in order] + sorted(
             f for f in root.glob("*.kosa") if f.stem not in order and f.name != "論域.kosa")
         for f in files:

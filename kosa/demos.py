@@ -18,6 +18,17 @@ def load(name):
     return onto, Module.load(ROOT / "模組" / name / "命題.kosa", onto)
 
 
+def load_library():
+    """讀入整個命題庫（不帶題目、目標）。"""
+    onto = Ontology.load(ROOT / "本體")
+    tmp = ROOT / ".命題庫.kosa"
+    tmp.write_text("題庫 命題庫\n引 庫\n", encoding="utf-8")
+    try:
+        return Module.load(tmp, onto)
+    finally:
+        tmp.unlink()
+
+
 def verses():
     return Verses(ROOT / "語料" / "俱舍論頌.json")
 
@@ -156,25 +167,17 @@ def module_three():
 
 
 def module_four():
-    t0 = time.time()
-    from .tree import verify
-    onto, m = load("四_前提體系")
-    e = Engine(m)
-    R = {"module": m, "engine": e}
-    R["tree"] = verify(e)
-    R["verse_checks"] = verses().check_module(m)
-    rows = []
-    tsv = ROOT / "模組" / "四_前提體系" / "精確化對照.tsv"
-    for line in tsv.read_text(encoding="utf-8").splitlines():
-        if line.startswith("#") or not line.strip():
-            continue
-        rows.append(line.split("\t"))
-    R["precision"] = rows[1:]
-    link = ROOT / "lean" / "網頁版" / "連結.txt"
-    R["web_link"] = link.read_text(encoding="utf-8").strip() if link.exists() else ""
-    R["seconds"] = time.time() - t0
-    R["calls"] = e.calls
-    return R
+    def precision(R, e, m, T):
+        rows = []
+        tsv = ROOT / "模組" / "四_前提體系" / "精確化對照.tsv"
+        for line in tsv.read_text(encoding="utf-8").splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            rows.append(line.split("\t"))
+        R["precision"] = rows[1:]
+        link = ROOT / "lean" / "網頁版" / "連結.txt"
+        R["web_link"] = link.read_text(encoding="utf-8").strip() if link.exists() else ""
+    return tree_module("四_前提體系", precision)
 
 
 def tree_module(name, extra=None):
@@ -187,12 +190,13 @@ def tree_module(name, extra=None):
     T = verify(e)
     R["tree"] = T
     R["verse_checks"] = verses().check_module(m)
-    base = [s for s, n in T.nodes.items() if n.layer in ("約定", "假定")]
+    struct = m.structure_ids()
+    base = [s for s, n in T.nodes.items() if n.kind == "前提"]
     R["base"] = base
-    # 每條假定、約定：去掉它，目標還成立嗎？（不成立者，附反例）
+    # 每條前提（葉子，不含本體結構）：去掉它，目標還成立嗎？（不成立者，附反例）
     R["drop"] = {}
     for a in base:
-        r = e.entails([b for b in base if b != a], T.goal)
+        r = e.entails(struct + [b for b in base if b != a], T.goal)
         R["drop"][a] = r
     if extra:
         extra(R, e, m, T)

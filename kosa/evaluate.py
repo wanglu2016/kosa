@@ -25,7 +25,10 @@ def class_holds_attrs(ce, attrs, onto, lex, preds):
         n = ce[1]
         info = lex.kind[n]
         if info[0] == "值":
-            return attrs.get(info[1]) == n
+            a = attrs.get(info[1])
+            return a == n or (isinstance(a, tuple) and n in a)
+        if info[0] == "類別":
+            return attrs.get("_論域") == n
         if info[0] == "定義":
             return class_holds_attrs(_def_ce(n, onto, lex), attrs, onto, lex, preds)
         if info[0] == "謂詞":
@@ -74,7 +77,7 @@ def holds(f, world: World, env: dict, onto, lex) -> bool:
         return (f[1], a.key, b.key) in world.rels
     if k == "同門":
         a, b = env[f[2]], env[f[3]]
-        return a.attrs.get(f[1]) == b.attrs.get(f[1])
+        return _vals(a.attrs.get(f[1])) == _vals(b.attrs.get(f[1]))
     if k == "同":
         return env[f[1]].key == env[f[2]].key
     if k == "非":
@@ -101,4 +104,51 @@ def holds(f, world: World, env: dict, onto, lex) -> bool:
         return rec(0, env)
     if k == "真":
         return True
+    if k == "結構":
+        return structure_holds(f, world, onto, lex)
     raise ValueError(f)
+
+
+def _vals(a):
+    if a is None or a == "—":
+        return frozenset()
+    return frozenset(a) if isinstance(a, tuple) else frozenset([a])
+
+
+def structure_holds(f, world, onto, lex):
+    """本體結構條目在一個世界中是否成立。"""
+    _, kind, name, _ = f
+    if kind in ("互斥", "窮盡", "適用"):
+        d = onto.dims[name]
+        ce = parse_class(d.applies, lex) if d.applies else None
+        for e in world.of_sort(d.sort):
+            vs = _vals(e.attrs.get(name))
+            app = class_holds_attrs(ce, e.attrs, onto, lex, e.preds) if ce else True
+            if kind == "互斥" and len(vs) > 1:
+                return False
+            if kind == "窮盡" and app and not vs:
+                return False
+            if kind == "適用" and vs and not app:
+                return False
+        return True
+    if kind == "值適用":
+        dn, val = name
+        d = onto.dims[dn]
+        ce = parse_class(d.value_applies[val], lex)
+        return all(class_holds_attrs(ce, e.attrs, onto, lex, e.preds)
+                   for e in world.of_sort(d.sort) if val in _vals(e.attrs.get(dn)))
+    r = onto.rels[name]
+    pairs = {(a, b) for rn, a, b in world.rels if rn == name}
+    if kind == "類型":
+        c1, c2 = parse_class(r.sig[0], lex), parse_class(r.sig[1], lex)
+        for a, b in pairs:
+            ea, eb = world.by_key(a), world.by_key(b)
+            if a == b or not class_holds_attrs(c1, ea.attrs, onto, lex, ea.preds) \
+                    or not class_holds_attrs(c2, eb.attrs, onto, lex, eb.preds):
+                return False
+        return True
+    if kind == "對稱":
+        return all((b, a) in pairs for a, b in pairs)
+    if kind == "傳遞":
+        return all((a, c) in pairs for a, b in pairs for b2, c in pairs if b == b2 and a != c)
+    return True
