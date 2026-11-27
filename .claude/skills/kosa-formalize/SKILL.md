@@ -35,6 +35,7 @@ description: 在 Kosa（wanglu2016/kosa，說一切有部阿毘達磨形式化�
 7. **證據等級要說清楚。** 求解器只窮盡有限世界（命題庫至多 5 個法、2 個有情）：「證成」「推得出」是有界結論；全稱部分的「推不出（附反例）」是確定的。重要的推出要有 Lean 證明。
 8. **存在命題逐條考。** 庫中含「有……」的命題（容有、通、各容有）自動拆成全稱部分「編號・全」與存在部分「編號・有1」……。全稱部分合起來是底子 U；存在部分逐條與 U 合考（有界世界裝不下上百條存在命題）。所以「未決」只表示「U 加任一條相關存在部分都判不出」，不是確定的。
 9. **用題網量完備。** 對一個分類系統地出題（如九十八隨眠的 10×3×5 格），看庫是否每格都判得出。未決的格子告訴你缺甚麼。
+10. **以題養庫。** 作者出題 → 先憑阿毘達磨知識解答（引頌）→ 把答案寫成題網入題庫 → 判不出就補本體與命題，直到每格一致 → 答案條目寫「依」並給 Lean 證明。補進去的應是可重用的背景（門、定義、按論書粒度的命題），不是為一題特設的捷徑；每補一條，問一句「別的題也會用到它嗎」。
 
 ## 三、逐條形式化的流程（批量時也每條照走）
 
@@ -71,12 +72,12 @@ description: 在 Kosa（wanglu2016/kosa，說一切有部阿毘達磨形式化�
 
 ```bash
 pip install --break-system-packages clingo fonttools brotli lzstring
-python3 -m kosa 驗證        # 頌文核對、推導檢驗、全庫相容、題庫（相違才算錯）
-python3 -m kosa 結構        # 施設（核心附反例）與推出（附極小前提）
+python3 -m kosa 驗證        # 頌文核對、推導檢驗、全庫相容、題庫（相違才算錯）；約 2 分鐘
+python3 -m kosa 結構        # 施設（核心附反例）與推出（附極小前提）；約 5 分鐘
 python3 -m kosa 判定 "有 x：貪(x) 且 善(x)"   # 證成／證否／未決
 python3 -m kosa 題庫
 python3 -m kosa lean        # 重新導出 Lean 定義與 Check.lean（改了命題文字後必跑）
-python3 -m kosa 報告        # 約 8 分鐘（前台命令上限 10 分鐘，超時就放到後台並等它結束）
+python3 -m kosa 報告        # 10 分鐘以上：放到後台並等它結束（前台命令上限 10 分鐘）
 ```
 
 ## 六、Lean
@@ -84,7 +85,10 @@ python3 -m kosa 報告        # 約 8 分鐘（前台命令上限 10 分鐘，�
 - 本機（雲端工作區）**裝不了 Lean**：網絡策略擋住工具鏈下載（403）。不要重試，也不要繞路。Lean 的檢查交給 GitHub Actions：推一個分支，用 `gh run list -R wanglu2016/kosa`、`gh run view <id> --log-failed` 看結果。
 - 證明寫在 `lean/Kosa/Proof*.lean`，定理名必須是「«編號成立»」，前提恰是「依」中的條目編號（本體定義與結構條目在 Lean 中是內建的，不寫）。`Check.lean` 自動檢驗這一點。
 - 改了命題文字，先 `python3 -m kosa lean` 重新導出，再改證明。
-- `Lib.lean` 是法，`LibP.lean` 是有情；跨論域的命題暫不導出。
+- `Lib.lean` 只有一個 `«世界»`，兩個載體 `W.«法»`、`W.«有情»`；門是 `W.«門» x`，關係是 `W.«成就» p x`。本體的適用條件、關係的類型與對稱在 `«本體公理» W` 裡（用 `O.«適用_律儀種» x` 一類取用）；門的互斥、窮盡是 inductive 自帶的。
+- 新證明開一個新文件 `lean/Kosa/ProofN.lean`（`import Kosa.Proof4` 可用其中的小引理），在 `lean/Kosa.lean` 加 import；`python3 -m kosa lean` 會把它收進 Check.lean。
+- 好用的寫法（Proof7 一次通過）：先證「某門有值則是某類法」一類小引理（`by_cases` ＋ `O.«適用_X»`）；把一個類的成員歸結為各門的值（如「諸律儀之體」給出法類、色自性、心所自性、六識四個值），再對假設 `simp only [定義名] at h` 展開、`rcases` 分情況，每種情況用 `first | (rw [h1] at h; cases h) | …` 收掉。兩個不同的門值相等，`cases` 直接收掉；`≠ .«—»` 用 `by rw [h]; decide`。
+- 分支上 CI 只跑檢驗與 Lean（約 3 分鐘）；看結果：`gh run list -R wanglu2016/kosa --branch 分支名`，日誌中應有 `Built Kosa.ProofN` 與 `Built Kosa.Check`。
 
 ## 七、Git 與發佈
 
